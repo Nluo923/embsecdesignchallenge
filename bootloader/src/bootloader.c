@@ -23,15 +23,22 @@
 #include "wolfssl/wolfcrypt/aes.h"
 #include "wolfssl/wolfcrypt/sha.h"
 #include "wolfssl/wolfcrypt/rsa.h"
+#include "wolfssl/wolfcrypt/hmac.h"
 
 // Forward Declarations
+void load_initial_firmware(void);
 void load_firmware(void);
 void boot_firmware(void);
 void uart_write_hex_bytes(uint8_t, uint8_t *, uint32_t);
+uint32_t random(uint8_t state);
+void rollIV();
+void readFrame();
 
 // Firmware Constants
 #define METADATA_BASE 0xFC00 // base address of version and firmware size in Flash
 #define FW_BASE 0x10000      // base address of firmware in Flash
+#define MAX_FIRMWARE_SIZE 30720 // 30 Kibibytes
+#define MAX_FIRMWAREBLOB_SIZE 31792 // 30 Kibibyte FW + 1 KB Release Message + 48 byte HMAC Signature
 
 // FLASH Constants
 #define FLASH_PAGESIZE 1024
@@ -43,13 +50,52 @@ void uart_write_hex_bytes(uint8_t, uint8_t *, uint32_t);
 #define UPDATE ((unsigned char)'U')
 #define BOOT ((unsigned char)'B')
 
+// Frame Constants
+#define SETUP   0
+#define DATA    1
+#define AUTH    2
+#define VERSION 3
+#define DATA_DELIM_SIZE 62
+
+// Encryption Constants
+#define HMAC_KEY_LENGTH 48
+#define HMAC_SIG_LENGTH 48
+#define AES_KEY_LENGTH 16
+#define AES_IV_LENGTH 16
+#define AES_GCM_TAG_LENGTH 16
+#define AES_GCM_AAD_LENGTH 16
+
+// Firmware v2 is embedded in bootloader
+extern int _binary_firmware_bin_start;
+extern int _binary_firmware_bin_size;
+
 // Device metadata
-uint16_t * fw_version_address = (uint16_t *)METADATA_BASE;
+uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t * fw_release_message_address;
 
 // Firmware Buffer
 unsigned char data[FLASH_PAGESIZE];
+
+// Encryption
+// char HMAC_KEY[HMAC_KEY_LENGTH] = HMAC;
+// char AES_KEY [AES_KEY_LENGTH]  = KEY;
+// char IV      [AES_IV_LENGTH]   = INIT_IV;
+// char AES_AAD [AES_GCM_AAD_LENGTH] = AAD;
+
+uint32_t random(uint8_t state) {
+    uint32_t z = state + 0x6D2B79F5;
+    z = (z ^ z >> 15) * (1 | z);
+    z ^= z + (z ^ z >> 7) * (61 | z);
+    return z ^ z >> 14;
+}
+
+// Generates IV after accessing the authentication tag
+void rollIV() {
+    for (uint8_t i = 0; i < AES_IV_LENGTH; i++) {
+        IV[i] = random(IV[i]) % 256;
+    }
+}
 
 // Delay to allow time to connect GDB
 // green LED as visual indicator of when this function is running
@@ -79,6 +125,14 @@ void debug_delay_led() {
 
 int main(void) {
 
+    // // Initialize UART channels
+    // // 0: Reset
+    // // 1: Host Connection
+    // // 2: Debug
+    // uart_init(UART0);
+    // uart_init(UART1);
+    // uart_init(UART2);
+
     // Enable the GPIO port that is used for the on-board LED.
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
 
@@ -86,8 +140,7 @@ int main(void) {
     while (!SysCtlPeripheralReady(SYSCTL_PERIPH_GPIOF)) {
     }
 
-    // Enable the GPIO pin for the LED (PF3).  Set the direction as output, and
-    // enable the GPIO pin for digital function.
+    //the GPIO pin for digital function.
     GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_3);
 
     // debug_delay_led();
@@ -296,4 +349,43 @@ void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
         uart_write_str(uart, byte_str);
         uart_write_str(uart, " ");
     }
+}
+
+
+// jon take a look at this
+int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data, int data_len, unsigned char* out) {
+    Hmac hmac;
+    int ret;
+
+    // Initialize HMAC context
+    ret = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
+    if (ret != 0) {
+        return ret; // Return error code if initialization fails
+    }
+
+    // Set HMAC key and hash type
+    ret = wc_HmacSetKey(&hmac, WC_SHA384, key, key_len);
+    if (ret != 0) {
+        wc_HmacFree(&hmac);
+        return ret; // Return error code if setting key fails
+    }
+
+    // Update HMAC with data
+    ret = wc_HmacUpdate(&hmac, data, data_len);
+    if (ret != 0) {
+        wc_HmacFree(&hmac);
+        return ret; // Return error code if update fails
+    }
+
+    // Finalize HMAC and retrieve output
+    ret = wc_HmacFinal(&hmac, out);
+    if (ret != 0) {
+        wc_HmacFree(&hmac);
+        return ret; // Return error code if finalization fails
+    }
+
+    // Free HMAC context
+    wc_HmacFree(&hmac);
+
+    return 48; // Return the length of the output for SHA-384 HMAC
 }

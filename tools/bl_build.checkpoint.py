@@ -27,12 +27,6 @@ def copy_initial_firmware(binary_path):
     shutil.copy(binary_path, bootloader / 'src' / 'firmware.bin')
 
 def arrayize(binstr):
-    """
-    Formats generated keys, IV, and AAD for bootloader.c access
-    
-    Return:
-        Prepped macro in hex from bytes
-    """
     values = "{" + ','.join([hex(char) for char in binstr]) + "}"
     return values
     
@@ -57,6 +51,7 @@ def make_bootloader():
     # Writing the keys and iv to secret_build_output
     with open("secret_build_output.txt", "wb") as f:
         f.write(hmac_key + aes_key + iv + aad)
+    
     
     subprocess.call('make clean', shell=True)
     # Enables the iv and keys to be passed into the bootloader.c file
