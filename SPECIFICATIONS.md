@@ -12,9 +12,9 @@ For the data frames, length is provided in the remaining bits.
 **Begin**
 
 ```
+<36 bytes>
 
-
-  0x00      0x01      0x03              0x05 0x25
+  0x00      0x01      0x03              0x04 0x24
    ^         ^         ^                 ^     ^
    | ID      | VER     | NUM_PACKETS     | SIG |
    [--------][--------][----------------][~~~~~]
