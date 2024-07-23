@@ -11,6 +11,8 @@ For the data frames, length is provided in the remaining bits.
 
 **Begin**
 
+The BEGIN frame stores metadata used to verify all of the incoming data frames.
+
 ```
 <84 bytes>
 
@@ -59,8 +61,6 @@ bits: ID(2)
 ```
 
 </blockquote>
-
-The BEGIN frame stores metadata used to verify all of the incoming data frames.
 
 ---
 
