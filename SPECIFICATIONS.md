@@ -12,21 +12,50 @@ For the data frames, length is provided in the remaining bits.
 **Begin**
 
 ```
-<36 bytes>
+<84 bytes>
 
 ID,UNK      :: 1 byte         Composed of first 2 bits ID, other 6 bits useless
 VER         :: 1 bytes        Version which shall be used to preserve its invariance
-NUM_PACKETS :: 2 bytes        Number of incoming data packets, this includes the ending frame.
+NUM_PACKETS :: 2 bytes        Number of incoming data packets, this includes the ending frame. Not the
 SIG         :: 32 bytes       Sign the metadata, because we are cool like that.
+PAD         :: 48 bytes       For comfort
 
-  0x00      0x01      0x02              0x04  0x24
-   ^         ^         ^                 ^     ^
-   | ID      | VER     | NUM_PACKETS     | SIG |
-   [--------][--------][----------------][~~~~~]
+  0x00      0x01      0x02              0x04   0x24      0x54
+   ^         ^         ^                 ^      ^         ^
+   | ID      | VER     | NUM_PACKETS     | SIG  |  PAD    |
+   [--------][--------][----------------][~~~~~][========]|
        |
        |
   [ 00 ...... ]
 bits: ID(2)  UNK(6)
+```
+
+</blockquote>
+
+---
+
+<blockquote>
+
+**Message**
+
+```
+<84 bytes>
+
+ID,UNK      :: 1 byte
+MESSAGE     :: 82 byte
+TERM        :: 1 byte          Null terminator to prevent Shenanigans
+
+Don't care about no encryption
+
+  0x00      0x01               0x53      0x54
+   ^         ^                  ^         ^
+   | ID,UNK  |     MESSAGE      |  TERM   |
+   [--------][.................][00000000]|
+       |
+       |
+  [ 01 ...... ]
+bits: ID(2)
+
 ```
 
 </blockquote>
@@ -58,7 +87,7 @@ SIG         :: 32 bytes       Signature of entire frame which will be used to en
    [--------][--------][.................][========][~~~~~]
        |
        |
-  [ 01 ...... ]
+  [ 10 ...... ]
 bits: ID(2)  LEN(6) :: 48
 ```
 
