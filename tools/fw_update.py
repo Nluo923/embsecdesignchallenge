@@ -94,7 +94,7 @@ def update(ser, infile, debug):
         frame = p16(len(data), endian='big') + data
 
         send_frame(ser, frame, debug=debug)
-        print(f"Writing frame {idx} of ({len(frame)} bytes)" + "[{:{}}]\r".format('█'*int(idx), len(firmware) // FRAME_SIZE), end='')
+        print(f"Writing frame {idx} of ({len(frame)} bytes)" + "[{:{}}]\r".format('▒'*int(idx), len(firmware) // FRAME_SIZE), end='')
 
     print("Done writing firmware.")
 
