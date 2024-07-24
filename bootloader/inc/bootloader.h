@@ -11,12 +11,6 @@
 #define IV_LEN 16
 #define MAX_MSG_LEN 256
 
-// Firmware Constants
-#define METADATA_BASE 0xFC00 // base address of version and firmware size in Flash
-#define FW_BASE 0x20000400      // base address of executable firmware in SRAM
-#define ENC_FW_BASE 0x20000  // base address of encrypted firmware in Flash 
-#define SIG_BASE 0x30000     // base address of firmware signatures
-
 // FLASH Constants
 #define FLASH_PAGESIZE 1024
 #define FLASH_WRITESIZE 4
@@ -48,7 +42,6 @@ typedef struct fw_meta_s {
     uint16_t    ver;                // Version of current fw being loaded
     uint16_t    min_ver;            // Miniumum fw version (not updated when debug fw loaded) 
     uint16_t    chunks;             // Length of fw in 1kb chunks
-    uint8_t     iv[IV_LEN];         // IV used to decrypt current fw
     uint16_t    msgLen;             // Length of fw message in bytes
     uint8_t     msg[MAX_MSG_LEN];   // fw release message
 } fw_meta_st;
