@@ -9,7 +9,8 @@ Firmware Bundle-and-Protect Tool
 """
 import argparse
 from pwn import *
-
+import sys
+import os.path
 
 def protect_firmware(infile, outfile, version, message):
     # Load firmware binary from infile
@@ -34,8 +35,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Firmware Update Tool")
     parser.add_argument("--infile", help="Path to the firmware image to protect.", required=True)
     parser.add_argument("--outfile", help="Filename for the output firmware.", required=True)
-    parser.add_argument("--version", help="Version number of this firmware.", required=True)
-    parser.add_argument("--message", help="Release message for this firmware.", required=True)
+    parser.add_argument("--version", help="Version number of this firmware.", required=True, type=int)
+    parser.add_argument("--message", help="Release message for this firmware (Max 82 chars).", required=True)
     args = parser.parse_args()
+
+    if os.path.isfile(args.infile):
+        print(f"{args.infile} doesn't exist")
+        sys.exit(-1)
+    
+    if os.path.isfile(args.outfile):
+        print(f"{args.outfile} doesn't exist")
+        sys.exit(-1)
+
+    if args.version <= 0:
+        print(f"Invalid version")
+        sys.exit(-1)
+
+    if len(args.message) > 82:
+        print("The message, it's too long...", file=sys.stderr)
+        sys.exit(-1)
 
     protect_firmware(infile=args.infile, outfile=args.outfile, version=int(args.version), message=args.message)
