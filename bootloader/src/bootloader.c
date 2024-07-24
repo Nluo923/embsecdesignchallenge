@@ -83,18 +83,12 @@ unsigned char data[FLASH_PAGESIZE];
 // char IV      [AES_IV_LENGTH]   = INIT_IV;
 // char AES_AAD [AES_GCM_AAD_LENGTH] = AAD;
 
+// mulberry32 - an actual high quality 32-bit generator
 uint32_t random(uint8_t state) {
     uint32_t z = state + 0x6D2B79F5;
     z = (z ^ z >> 15) * (1 | z);
     z ^= z + (z ^ z >> 7) * (61 | z);
     return z ^ z >> 14;
-}
-
-// Generates IV after accessing the authentication tag
-void rollIV() {
-    for (uint8_t i = 0; i < AES_IV_LENGTH; i++) {
-        IV[i] = random(IV[i]) % 256;
-    }
 }
 
 // Delay to allow time to connect GDB
