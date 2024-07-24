@@ -90,13 +90,6 @@ uint32_t random(uint8_t state) {
     return z ^ z >> 14;
 }
 
-// Generates IV after accessing the authentication tag
-void rollIV() {
-    for (uint8_t i = 0; i < AES_IV_LENGTH; i++) {
-        IV[i] = random(IV[i]) % 256;
-    }
-}
-
 // Delay to allow time to connect GDB
 // green LED as visual indicator of when this function is running
 void debug_delay_led() {
