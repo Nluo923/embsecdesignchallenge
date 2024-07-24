@@ -173,28 +173,25 @@ int main(void) {
  */
 void load_firmware(void) {
     int frame_length = 0;
-    int read = 0;
-    uint32_t rcv = 0;
-
-    uint32_t data_index = 0;
-    uint32_t page_addr = FW_BASE;
-    uint32_t version = 0;
-    uint32_t size = 0;
+    int read_success = 0; // The LSB is set by uart_read if successful, but is always 1 when BLOCKING.
+    uint32_t uart_receive = 0;
 
     // Get version.
-    rcv = uart_read(UART0, BLOCKING, &read);
-    version = (uint32_t)rcv;
-    rcv = uart_read(UART0, BLOCKING, &read);
-    version |= (uint32_t)rcv << 8;
+    uint32_t version = 0;
+    uart_receive = uart_read(UART0, BLOCKING, &read_success);
+    version = (uint32_t)uart_receive;
+    uart_receive = uart_read(UART0, BLOCKING, &read_success);
+    version |= (uint32_t)uart_receive << 8;
 
     // Get size.
-    rcv = uart_read(UART0, BLOCKING, &read);
-    size = (uint32_t)rcv;
-    rcv = uart_read(UART0, BLOCKING, &read);
-    size |= (uint32_t)rcv << 8;
+    uint32_t size = 0;
+    uart_receive = uart_read(UART0, BLOCKING, &read_success);
+    size = (uint32_t)uart_receive;
+    uart_receive = uart_read(UART0, BLOCKING, &read_success);
+    size |= (uint32_t)uart_receive << 8;
 
     // Compare to old version and abort if older (note special case for version 0).
-    // If no metadata available (0xFFFF), accept version 1
+    // If no metadata available (0xFFFF), set as version 1
     uint16_t old_version = *fw_version_address;
     if (old_version == 0xFFFF) {
         old_version = 1;
@@ -217,17 +214,20 @@ void load_firmware(void) {
     uart_write(UART0, OK); // Acknowledge the metadata.
 
     /* Loop here until you can get all your characters and stuff */
+    uint32_t data_index = 0;
+    uint32_t page_addr = FW_BASE;
+
     while (1) {
 
         // Get two bytes for the length.
-        rcv = uart_read(UART0, BLOCKING, &read);
-        frame_length = (int)rcv << 8;
-        rcv = uart_read(UART0, BLOCKING, &read);
-        frame_length += (int)rcv;
+        uart_receive = uart_read(UART0, BLOCKING, &read_success);
+        frame_length = (int)uart_receive << 8;
+        uart_receive = uart_read(UART0, BLOCKING, &read_success);
+        frame_length += (int)uart_receive;
 
         // Get the number of bytes specified
         for (int i = 0; i < frame_length; ++i) {
-            data[data_index] = uart_read(UART0, BLOCKING, &read);
+            data[data_index] = uart_read(UART0, BLOCKING, &read_success);
             data_index += 1;
         } // for
 
