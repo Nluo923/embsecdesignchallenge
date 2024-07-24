@@ -26,10 +26,9 @@ import argparse
 from pwn import *
 import time
 import serial
+from shutil import get_terminal_size
 
 from util import *
-
-ser = serial.Serial("/dev/ttyACM0", 115200)
 
 RESP_OK = b"\x00"
 FRAME_SIZE = 256
@@ -95,7 +94,7 @@ def update(ser, infile, debug):
         frame = p16(len(data), endian='big') + data
 
         send_frame(ser, frame, debug=debug)
-        print(f"Wrote frame {idx} ({len(frame)} bytes)")
+        print(f"Writing frame {idx} of ({len(frame)} bytes)" + "[{:{}}]\r".format('█'*int(idx), len(firmware) // FRAME_SIZE), end='')
 
     print("Done writing firmware.")
 
@@ -108,6 +107,14 @@ def update(ser, infile, debug):
 
     return ser
 
+def our_beloved():
+    width = get_terminal_size()[0]
+    jydn = open("../media/beloved.txt", "r").read().splitlines()
+    jydn[4] += "      our beloved"
+    jydn = [l[:width] if len(l) > width else l for l in jydn]
+
+    sys.stdout.write("\n".join(jydn))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Firmware Update Tool")
@@ -115,7 +122,15 @@ if __name__ == "__main__":
     parser.add_argument("--port", help="Does nothing, included to adhere to command examples in rule doc", required=False)
     parser.add_argument("--firmware", help="Path to firmware image to load.", required=False)
     parser.add_argument("--debug", help="Enable debugging messages.", action="store_true")
+    parser.add_argument("--devname", help="wtf is an ACM", required=False)
     args = parser.parse_args()
 
+    if args.devname is not None:
+        ser = serial.Serial(f"/dev/{args.devname}", 115200)
+        print("Loaded serial connection: {ser}")
+    else:
+        ser = serial.Serial("/dev/ttyACM0", 115200)
+
     update(ser=ser, infile=args.firmware, debug=args.debug)
+    our_beloved()
     ser.close()
