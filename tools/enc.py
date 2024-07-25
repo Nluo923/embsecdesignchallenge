@@ -120,7 +120,7 @@ def step8(s, l, r):
     return s;
 
 def encryption(flag, n):
-    return [step6(step5(step4(step3(step2(flag, 13), 4), "JJMN")), b"1"*16, b"1"*16) for flag in step11msg(flag, n)];
+    return [step6(step5(step4(step3(step2(flag, 13), 4), "JJMN")), b"1"*16, b"1"*16) for flag in [flag]];
 
 def smartPrint(encs):
     ret = ""
