@@ -5,10 +5,12 @@
 #include <bootloader.h>
 #endif
 
-// Types for frames that will be the *unencrypted* version of incoming data
+// Types for frames that will be the *unencrypted* version of incoming data.
+// These should not be indexed; utilize their members.
 typedef struct begin_frame_t {
     uint8_t version;
     uint16_t num_packets;
+    uint16_t bytesize;
     uint8_t signature[32];
 } BeginFrame;
 

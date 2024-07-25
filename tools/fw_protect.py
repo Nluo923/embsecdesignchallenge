@@ -17,13 +17,13 @@ def protect_firmware(infile, outfile, version, message):
     with open(infile, "rb") as fp:
         firmware = fp.read()
 
-    # Append null-terminated message to end of firmware
-    firmware_and_message = firmware + message.encode() + b"\00"
+    # Append null-terminated message to start of firmware
+    firmware_and_message = message.encode() + b"\00" + firmware
 
     # Pack version and size into two little-endian shorts
     metadata = p16(version, endian='little') + p16(len(firmware), endian='little')  
 
-    # Append firmware and message to metadata
+    # Append message and firmware to metadata
     firmware_blob = metadata + firmware_and_message
 
     # Write firmware blob to outfile
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         print(f"{args.outfile} doesn't exist")
         sys.exit(-1)
 
-    if args.version <= 0:
+    if args.version <= 0 or args.version > 255:
         print(f"Invalid version")
         sys.exit(-1)
 

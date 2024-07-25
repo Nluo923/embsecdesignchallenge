@@ -34,6 +34,7 @@ void load_firmware(void);
 void boot_firmware(void);
 void uart_write_hex_bytes(uint8_t, uint8_t *, uint32_t);
 uint32_t random(uint8_t state);
+void read_frame(uint8_t* bytes);
 int frame_unpack_begin(uint8_t *, BeginFrame *);
 int frame_unpack_message(uint8_t *, MessageFrame *);
 int frame_unpack_data(uint8_t *, DataFrame *);
@@ -78,7 +79,7 @@ extern int _binary_firmware_bin_size;
 // Current (as in the one to be updated) device metadata
 uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
-uint8_t * fw_release_message_address;
+uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 
 // Firmware Buffer
 unsigned char data[FLASH_PAGESIZE];
@@ -175,20 +176,12 @@ void load_firmware(void) {
     int frame_length = 0;
     int read_success = 0; // The LSB is set by uart_read if successful, but is always 1 when BLOCKING.
     uint32_t uart_receive = 0;
-
-    // Get version.
-    uint32_t version = 0;
-    uart_receive = uart_read(UART0, BLOCKING, &read_success);
-    version = (uint32_t)uart_receive;
-    uart_receive = uart_read(UART0, BLOCKING, &read_success);
-    version |= (uint32_t)uart_receive << 8;
-
-    // Get size.
-    uint32_t size = 0;
-    uart_receive = uart_read(UART0, BLOCKING, &read_success);
-    size = (uint32_t)uart_receive;
-    uart_receive = uart_read(UART0, BLOCKING, &read_success);
-    size |= (uint32_t)uart_receive << 8;
+    uint8_t frame[FRAME_SIZE];
+    
+    // Get metadata
+    BeginFrame metadata;
+    read_frame(frame);
+    frame_unpack_begin(frame, &metadata);
 
     // Compare to old version and abort if older (note special case for version 0).
     // If no metadata available (0xFFFF), set as version 1
@@ -197,18 +190,20 @@ void load_firmware(void) {
         old_version = 1;
     }
 
-    if (version != 0 && version < old_version) {
+    if (metadata.version != 0 && metadata.version < old_version) {
         uart_write(UART0, ERROR); // Reject the metadata.
         SysCtlReset();            // Reset device
         return;
-    } else if (version == 0) {
+    }
+    
+    if (metadata.version == 0) {
         // If debug firmware, don't change version
-        version = old_version;
+        metadata.version = old_version;
     }
 
     // Write new firmware size and version to Flash
     // Create 32 bit word for flash programming, version is at lower address, size is at higher address
-    uint32_t metadata = ((size & 0xFFFF) << 16) | (version & 0xFFFF);
+    uint32_t metadata_to_write = ((metadata.bytesize & 0xFFFF) << 16) | (metadata.version & 0xFFFF);
     program_flash((uint8_t *) METADATA_BASE, (uint8_t *)(&metadata), 4);
 
     uart_write(UART0, OK); // Acknowledge the metadata.
@@ -218,7 +213,6 @@ void load_firmware(void) {
     uint32_t page_addr = FW_BASE;
 
     while (1) {
-
         // Get two bytes for the length.
         uart_receive = uart_read(UART0, BLOCKING, &read_success);
         frame_length = (int)uart_receive << 8;
@@ -316,9 +310,6 @@ void boot_firmware(void) {
         return;
     }
 
-    // compute the release message address, and then print it
-    uint16_t fw_size = *fw_size_address;
-    fw_release_message_address = (uint8_t *)(FW_BASE + fw_size);
     uart_write_str(UART0, (char *)fw_release_message_address);
 
     // Boot the firmware
@@ -389,9 +380,11 @@ int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data
     return 48; // Return the length of the output for SHA-384 HMAC
 }
 
-// Determine which frame read to utilize
-void frame_read() {
-
+void read_frame(uint8_t* bytes) {
+    int suck;
+    for (int i=0; i<FRAME_SIZE; i++) {
+        bytes[i] = uart_read(UART0, 1, suck);
+    }
 }
 
 /*
@@ -404,9 +397,10 @@ int frame_unpack_begin(uint8_t* bytes, BeginFrame* frame) {
 
     frame->version = bytes[1];
     frame->num_packets = (bytes[3] << 8) | bytes[2];
+    frame->bytesize = (bytes[5] << 8) | bytes[4];
     
     for (int i=0; i<32; i++) {
-        frame->signature[i] = bytes[4+i];
+        frame->signature[i] = bytes[6+i];
     }
 
     return 0;
