@@ -119,8 +119,15 @@ def step8(s, l, r):
     s = s.replace(" ", "".join([str(random.randint(0, 1)) for i in range(l)] + ["."] + [str(random.randrange(0, 1)) for i in range(r)]));
     return s;
 
-def encryption(flag, n):
-    return [step6(step5(step4(step3(step2(flag, 13), 4), "JJMN")), b"1"*16, b"1"*16) for flag in [flag]];
+def encryption(flag, inp2 = 13, inp3 = 4, inp4 = "JJMN", inp6_1 = b"1"*16, inp6_2 = b"1"*16):
+    #default args, for security use randomized ones
+    outp2 = step2(flag, inp2)
+    outp3 = step3(outp2, inp3)
+    outp4 = step4(outp3, inp4)
+    outp5 = step5(outp4)
+    outp6 = step6(outp5, inp6_1, inp6_2)
+    print(inp2, inp3, inp4, inp6_1, inp6_2)
+    return outp6
 
 def smartPrint(encs):
     ret = ""
