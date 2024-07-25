@@ -1,3 +1,36 @@
+# Current Encryption Format
+
+**J**oint
+**A**lgorithm
+**Y**ielding
+**D**ata
+**E**ncryption
+**N**etwork
+
+Encryption
+
+-   [x] Many Flags
+-   [x] Caesar
+-   [x] Railfence
+-   [x] Alphabet modulus
+-   [x] Enigma
+-   [x] AES-128
+-   [x] Morse
+-   [x] Numbers
+
+Decryption
+
+-   [ ] Many Flags
+-   [ ] Caesar
+-   [ ] Railfence
+-   [ ] Alphabet modulus
+-   [ ] Enigma
+-   [ ] AES-128
+-   [ ] Morse
+-   [ ] Numbers
+
+---
+
 # Frame Format
 
 All frames are signed to ensure that they are indeed the correct data that was encrypted with the secrets provided at build time.
