@@ -400,7 +400,7 @@ void frame_read() {
  */
 
 int frame_unpack_begin(uint8_t* bytes, BeginFrame* frame) {
-    if ((bytes[0] >> 6) != 0) return -1;d
+    if ((bytes[0] >> 6) != 0) return -1;
 
     frame->version = bytes[1];
     frame->num_packets = (bytes[3] << 8) | bytes[2];
