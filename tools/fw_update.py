@@ -30,7 +30,7 @@ from shutil import get_terminal_size
 
 from util import *
 
-RESP_OK = b"\x01"
+RESP_OK = b"\x00"
 FRAME_SIZE = 84
 
 def send_metadata(ser, metadata, debug=False):
