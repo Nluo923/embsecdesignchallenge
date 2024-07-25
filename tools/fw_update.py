@@ -56,7 +56,7 @@ def send_metadata(ser: serial.Serial, metadata, debug=False):
 
     # sign using metadata slice
     h = HMAC.new(key, digestmod=SHA256)
-    h.update(begin[0:4])
+    h.update(begin[0:6])
     print(f"Signed BEGIN with signature of size {h.digest_size}")
     begin[6:38] = h.digest()
 
