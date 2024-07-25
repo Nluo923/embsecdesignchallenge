@@ -63,7 +63,22 @@ def step11msg(flag, n):
 
 
 def step2(s, key):
-    return Caesar(key=key).encipher(s, keep_punct=True).lower();
+    encrypted = ""
+
+    for char in s:
+        if char.isupper():
+            # Encrypt uppercase 
+            encrypted_char = chr((ord(char) + key - 65) % 26 + 65)
+            encrypted += encrypted_char
+        elif char.islower():
+            # Encrypt lowercase 
+            encrypted_char = chr((ord(char) + key - 97) % 26 + 97)
+            encrypted += encrypted_char
+        else:
+            # Keep others
+            encrypted += char
+
+    return encrypted
 
 
 def step3(s, key):
