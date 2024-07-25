@@ -25,14 +25,18 @@
 #include "wolfssl/wolfcrypt/rsa.h"
 #include "wolfssl/wolfcrypt/hmac.h"
 
+// oi oi oi
+#include "frame.h"
+
 // Forward Declarations
 void load_initial_firmware(void);
 void load_firmware(void);
 void boot_firmware(void);
 void uart_write_hex_bytes(uint8_t, uint8_t *, uint32_t);
 uint32_t random(uint8_t state);
-void rollIV();
-void readFrame();
+int frame_unpack_begin(uint8_t *, BeginFrame *);
+int frame_unpack_message(uint8_t *, MessageFrame *);
+int frame_unpack_data(uint8_t *, DataFrame *);
 
 // Firmware Constants
 #define METADATA_BASE 0xFC00 // base address of version and firmware size in Flash
@@ -57,6 +61,8 @@ void readFrame();
 #define VERSION 3
 #define DATA_DELIM_SIZE 62
 
+#define FRAME_SIZE 84
+
 // Encryption Constants
 #define HMAC_KEY_LENGTH 48
 #define HMAC_SIG_LENGTH 48
@@ -69,7 +75,7 @@ void readFrame();
 extern int _binary_firmware_bin_start;
 extern int _binary_firmware_bin_size;
 
-// Device metadata
+// Current (as in the one to be updated) device metadata
 uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t * fw_release_message_address;
@@ -345,7 +351,6 @@ void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
     }
 }
 
-
 // jon take a look at this
 int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data, int data_len, unsigned char* out) {
     Hmac hmac;
@@ -382,4 +387,57 @@ int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data
     wc_HmacFree(&hmac);
 
     return 48; // Return the length of the output for SHA-384 HMAC
+}
+
+// Determine which frame read to utilize
+void frame_read() {
+
+}
+
+/*
+ * Takes FRAME_SIZE bytes, and pointer to the corresponding struct to write to.
+ * Returns 0 on success
+ */
+
+int frame_unpack_begin(uint8_t* bytes, BeginFrame* frame) {
+    if ((bytes[0] >> 6) != 0) return -1;
+
+    frame->version = bytes[1];
+    frame->num_packets = (bytes[3] << 8) | bytes[2];
+    
+    for (int i=0; i<32; i++) {
+        frame->signature[i] = bytes[4+i];
+    }
+
+    return 0;
+}
+
+int frame_unpack_message(uint8_t* bytes, MessageFrame* frame) {
+    if ((bytes[0] >> 6) != 1) return -1;
+
+    for (int i=0; i<82; i++) {
+        frame->terminated_message[i] = bytes[1+i];
+    }
+
+    frame->terminated_message[82] = '\0';
+
+    return 0;
+}
+
+int frame_unpack_data(uint8_t* bytes, DataFrame* frame) {
+    // Reject if first bit unset
+    if (!(bytes[0] & 0b10000000)) return -1;
+
+    frame->len = bytes[0] & 0b00111111;
+    frame->nonce = (bytes[2] << 8) | bytes[1];
+
+    for (int i=0; i<48; i++) {
+        frame->data[i] = (i < frame->len) ? bytes[3+i] : 0x00;
+    }
+
+    for (int i=0; i<32; i++) {
+        frame->signature[i] = bytes[52+i];
+    }
+
+    return 0;
 }

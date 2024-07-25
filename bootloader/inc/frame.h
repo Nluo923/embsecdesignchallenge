@@ -6,7 +6,6 @@
 #endif
 
 // Types for frames that will be the *unencrypted* version of incoming data
-
 typedef struct begin_frame_t {
     uint8_t version;
     uint16_t num_packets;
