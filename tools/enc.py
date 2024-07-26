@@ -149,4 +149,3 @@ def smartPrint(encs):
     for e in encs:
         ret += e + "\n";
     return ret[:-1]
-        
