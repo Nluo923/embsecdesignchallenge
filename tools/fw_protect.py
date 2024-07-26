@@ -39,11 +39,11 @@ if __name__ == "__main__":
     parser.add_argument("--message", help="Release message for this firmware (Max 82 chars).", required=True)
     args = parser.parse_args()
 
-    if os.path.isfile(args.infile):
+    if os.path.isfile(args.infile) is None:
         print(f"{args.infile} doesn't exist")
         sys.exit(-1)
     
-    if os.path.isfile(args.outfile):
+    if os.path.isfile(args.outfile) is None:
         print(f"{args.outfile} doesn't exist")
         sys.exit(-1)
 
