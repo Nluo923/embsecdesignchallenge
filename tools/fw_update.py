@@ -37,7 +37,9 @@ FRAME_SIZE = 84
 key = 'hmac'
 
 def send_metadata(ser: serial.Serial, metadata, debug=False):
-    id = 0b00
+    assert(len(metadata) == 4)
+
+    id = 0b00000000
 
     # this reads important metadata FROM THE PROTECTED FIRMWARE to be written on flash and recorded. IT IS NOT THE BINARY
     version = u16(metadata[:2], endian='little')
@@ -60,7 +62,7 @@ def send_metadata(ser: serial.Serial, metadata, debug=False):
     print(f"Signed BEGIN with signature of size {h.digest_size}")
     begin[6:38] = h.digest()
 
-    begin[38:] = b'x\00' * (84-38)
+    begin[38:] = b'\0' * (84-38)
 
     # send the properly constructed BEGIN frame
     ser.write(begin)
@@ -72,21 +74,31 @@ def send_metadata(ser: serial.Serial, metadata, debug=False):
         raise RuntimeError("ERROR: Bootloader responded with {}".format(repr(resp)))
 
 
-def send_frame(ser: serial.Serial, frame: bytearray, debug=False):
-    assert(len(frame) == 84)
-    # first_byte = u8(frame[0], endian='little')
+def send_frame(ser: serial.Serial, frame: bytearray, nonce: int, debug=False):
+    id = len(frame)
 
-    # length = first_byte & 0x3f
-    # id = (first_byte >> 6)
-    # assert(id == 2)
+    if len(frame) == FRAME_SIZE:
+        id |= 0b10000000
+    else:
+        id |= 0b11000000
 
+    nonce = p16(nonce, endian='little')
+    
+    data_frame = bytearray(84)
+    data_frame[0] = id
+    data_frame[1 : 3] = nonce
+    data_frame[3 : 3 + len(frame)] = frame
+    data_frame[3 + len(frame)] = b'\0'
 
-    # print(f"Id: {id}\nLength: {length}\n")
+    h = HMAC.new(key, digestmod=SHA256)
+    h.update(data_frame[0 : 3 + len(frame)])
+    print(f"Signed BEGIN with signature of size {h.digest_size}")
+    data_frame[4 + len(frame) : ] = h.digest()
 
-    ser.write(frame)
+    ser.write(data_frame)
 
     if debug:
-        print_hex(frame)
+        print_hex(data_frame)
 
     resp = ser.read(1)  # Wait for an OK from the bootloader
 
@@ -98,17 +110,17 @@ def send_frame(ser: serial.Serial, frame: bytearray, debug=False):
     if debug:
         print("Resp: {}".format(ord(resp)))
 
-def send_release_message(ser: serial.Serial, frame: bytearray, debug=False):
-    assert(len(frame) == 84)
+def send_release_message(ser: serial.Serial, message: bytearray, debug=False):
+    assert(message[-1] == b'\0')
 
-    first_byte = u8(frame[0], endian='little')
-    id = (first_byte >> 6)
+    id = 0b01
 
-    assert(id == 0b01)
+    frame = bytearray(84)
 
-    message = unpack(frame[1:83], 82, endian='little')
-
-    print(f"Message: {message}\n")
+    for i in range(1, min(len(message), 84)):
+        frame[i] = message[i-1]
+    frame[-1] = b'\0'
+    print(f"Message (len {len(message)}): {message}\n")
 
     ser.write(frame)
 
@@ -126,13 +138,6 @@ def send_release_message(ser: serial.Serial, frame: bytearray, debug=False):
         print("Resp: {}".format(ord(resp)))
 
 def update(ser: serial.Serial, infile, debug):
-    """
-
-    
-    NEVER WROTE THE MESSAGE. BIG ERROR!!!
-
-
-    """
     ser.write(b"U")
 
     print("Waiting for bootloader to enter update mode...")
@@ -146,15 +151,22 @@ def update(ser: serial.Serial, infile, debug):
         firmware_blob = fp.read()
 
     metadata = firmware_blob[:4]
-    firmware = firmware_blob[4:]
 
     send_metadata(ser, metadata, debug=debug)
-    send_release_message(ser, )
 
+    null_term = 4
+    while firmware_blob[null_term] != b"\0":
+        null_term += 1
+
+    print(f"Message: {firmware_blob[4:null_term+1]}")
+
+    send_release_message(ser, firmware_blob[4:null_term+1]);
+
+    firmware = firmware_blob[null_term+1:]
     for idx, frame_start in enumerate(range(0, len(firmware), FRAME_SIZE)):
         frame = firmware[frame_start : frame_start + FRAME_SIZE]
 
-        send_frame(ser, frame, debug=debug)
+        send_frame(ser, frame, idx, debug=debug)
 
         print(f"Writing frame {idx} of ({len(frame)} bytes)" + "[{:{}}]\r".format('▒'*int(idx), len(firmware) // FRAME_SIZE), end='')
 
