@@ -32,7 +32,7 @@ void decrypt_aes_cbc(const char* input, const unsigned char* key, const unsigned
     }
 
     // Initialize AES
-    ret = wc_AesSetKey(&aes, key, 16, iv, AES_DECRYPT);
+    ret = wc_AesSetKey(&aes, key, 16, iv, AES_DECRYPTION);
     if (ret != 0) {
         fprintf(stderr, "Failed to set AES key: %d\n", ret);
         exit(1);
