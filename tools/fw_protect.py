@@ -18,7 +18,7 @@ def protect_firmware(infile, outfile, version, message):
         firmware = fp.read()
 
     # Append null-terminated message to start of firmware
-    firmware_and_message = message.encode() + b"\00" + firmware
+    firmware_and_message = message.encode() + b"\0" + firmware
 
     # Pack version and size into two little-endian shorts
     metadata = p16(version, endian='little') + p16(len(firmware), endian='little')  

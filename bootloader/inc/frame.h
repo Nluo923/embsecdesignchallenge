@@ -11,7 +11,7 @@ typedef struct begin_frame_t {
     uint8_t version;
     uint16_t num_packets;
     uint16_t bytesize;
-    uint8_t signature[32];
+    uint8_t signature[HMAC_SIG_LENGTH];
 } BeginFrame;
 
 typedef struct message_frame_t {
@@ -22,7 +22,8 @@ typedef struct data_frame_t {
     uint8_t len; // This will be the six least significant bits of the first incoming byte.
     uint16_t nonce;
     uint8_t data[48];
-    uint8_t signature[32];
+    uint8_t signature[HMAC_SIG_LENGTH];
+    uint8_t is_last_frame;
 } DataFrame;
 
 #endif

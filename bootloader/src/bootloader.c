@@ -2,10 +2,12 @@
 // Approved for public release. Distribution unlimited 23-02181-25.
 
 #include "bootloader.h"
+#include "keys.h"
 
 // Hardware Imports
 #include "inc/hw_memmap.h"    // Peripheral Base Addresses
 #include "inc/hw_types.h"     // Boolean type
+#include "inc/hw_flash.h"
 #include "inc/tm4c123gh6pm.h" // Peripheral Bit Masks and Registers
 // #include "inc/hw_ints.h" // Interrupt numbers
 
@@ -39,39 +41,6 @@ int frame_unpack_begin(uint8_t *, BeginFrame *);
 int frame_unpack_message(uint8_t *, MessageFrame *);
 int frame_unpack_data(uint8_t *, DataFrame *);
 
-// Firmware Constants
-#define METADATA_BASE 0xFC00 // base address of version and firmware size in Flash
-#define FW_BASE 0x10000      // base address of firmware in Flash
-#define MAX_FIRMWARE_SIZE 30720 // 30 Kibibytes
-#define MAX_FIRMWAREBLOB_SIZE 31792 // 30 Kibibyte FW + 1 KB Release Message + 48 byte HMAC Signature
-
-// FLASH Constants
-#define FLASH_PAGESIZE 1024
-#define FLASH_WRITESIZE 4
-
-// Protocol Constants
-#define OK ((unsigned char)0x00)
-#define ERROR ((unsigned char)0x01)
-#define UPDATE ((unsigned char)'U')
-#define BOOT ((unsigned char)'B')
-
-// Frame Constants
-#define SETUP   0
-#define DATA    1
-#define AUTH    2
-#define VERSION 3
-#define DATA_DELIM_SIZE 62
-
-#define FRAME_SIZE 84
-
-// Encryption Constants
-#define HMAC_KEY_LENGTH 48
-#define HMAC_SIG_LENGTH 48
-#define AES_KEY_LENGTH 16
-#define AES_IV_LENGTH 16
-#define AES_GCM_TAG_LENGTH 16
-#define AES_GCM_AAD_LENGTH 16
-
 // Firmware v2 is embedded in bootloader
 extern int _binary_firmware_bin_start;
 extern int _binary_firmware_bin_size;
@@ -81,8 +50,11 @@ uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 
-// Firmware Buffer
-unsigned char data[FLASH_PAGESIZE];
+#define MAX_INTERMEDIATE_PAGES 12
+// Intermediate Firmware Buffer
+// These staging buffers store incoming firmware until fully verified and then flashed.
+uint8_t itm_data[FLASH_PAGESIZE * MAX_INTERMEDIATE_PAGES];
+int itm_start_idx = 0; // Frame index
 
 // Encryption
 // char HMAC_KEY[HMAC_KEY_LENGTH] = HMAC;
@@ -97,6 +69,9 @@ uint32_t random(uint8_t state) {
     z ^= z + (z ^ z >> 7) * (61 | z);
     return z ^ z >> 14;
 }
+
+// Signing
+#define INVALID_HASH_ERR -420
 
 // Delay to allow time to connect GDB
 // green LED as visual indicator of when this function is running
@@ -123,17 +98,17 @@ void debug_delay_led() {
     GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, 0x0);
 }
 
+void disableDebugging(void){
+    // Write the unlock value to the flash memory protection registers
+    HWREG(FLASH_FMPRE0) = 0xFFFFFFFF;
+    HWREG(FLASH_FMPPE0) = 0xFFFFFFFF;
+
+    // Disable the debug interface by writing to the FMD and FMC registers
+    HWREG(FLASH_FMD) = 0xA4420004;
+    HWREG(FLASH_FMC) = FLASH_FMC_WRKEY | FLASH_FMC_COMT;
+}
 
 int main(void) {
-
-    // // Initialize UART channels
-    // // 0: Reset
-    // // 1: Host Connection
-    // // 2: Debug
-    // uart_init(UART0);
-    // uart_init(UART1);
-    // uart_init(UART2);
-
     // Enable the GPIO port that is used for the on-board LED.
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
 
@@ -175,13 +150,19 @@ int main(void) {
 void load_firmware(void) {
     int frame_length = 0;
     int read_success = 0; // The LSB is set by uart_read if successful, but is always 1 when BLOCKING.
+    int unpack_fail = -1;
     uint32_t uart_receive = 0;
-    uint8_t frame[FRAME_SIZE];
+    uint8_t raw_frame[FRAME_SIZE];
     
     // Get metadata
     BeginFrame metadata;
-    read_frame(frame);
-    frame_unpack_begin(frame, &metadata);
+    read_frame(raw_frame);
+    unpack_fail = frame_unpack_begin(raw_frame, &metadata);
+
+    if (unpack_fail != 0) {
+        abort();
+        return;
+    }
 
     // Compare to old version and abort if older (note special case for version 0).
     // If no metadata available (0xFFFF), set as version 1
@@ -189,64 +170,119 @@ void load_firmware(void) {
     if (old_version == 0xFFFF) {
         old_version = 1;
     }
-
     if (metadata.version != 0 && metadata.version < old_version) {
-        uart_write(UART0, ERROR); // Reject the metadata.
-        SysCtlReset();            // Reset device
+        abort();
         return;
     }
-    
-    if (metadata.version == 0) {
-        // If debug firmware, don't change version
-        metadata.version = old_version;
+    if (metadata.bytesize > MAX_FIRMWARE_SIZE) {
+        abort();
+        return;
     }
+    if (metadata.version == 0) {
+        metadata.version = old_version; // If debug firmware, don't change version
+    }
+
+    // Signed by concat [version, num_packets, bytesize] in that order
+    // Yeah i could read from a position in the struct but surely we have 6 bytes to spare
+    uint8_t concat_metadata[5];
+    memcpy(concat_metadata, &metadata.version, 1);
+    memcpy(1 + concat_metadata, (uint8_t *) &metadata.num_packets, 2);
+    memcpy(3 + concat_metadata, (uint8_t *) &metadata.bytesize, 2);
+    if (verify_signature(metadata.signature, concat_metadata, 5) != 0) {
+        abort();
+        return;
+    }
+
+    uart_write(UART0, OK); // Acknowledge the metadata.
+
+    // Release Message
+    MessageFrame release_message;
+    read_frame(raw_frame);
+    unpack_fail = frame_unpack_message(raw_frame, &release_message);
+    if (unpack_fail) {
+        abort();
+        return;
+    }
+    uart_write(UART0, OK); // Do not ghost the sender.
+    
+    // Read dataframes and store in intermediate buffer
+    int expected_nonce = 0;
+    int frames_received = 0;
+    int real_bytesize = 0;
+    while (1) {
+        // If exceeds expected frames, abort
+        if (frames_received >= metadata.num_packets) {
+            abort();
+            return;
+        }
+
+        // Read in a frame
+        read_frame(raw_frame);
+        frames_received++;
+
+        // Unpack as DataFrame
+        DataFrame data_frame;
+        unpack_fail = frame_unpack_data(raw_frame, &data_frame);
+        real_bytesize += data_frame.len;
+
+        // Explode if bad, out of order/duped, or exceeds bytesize
+        if (unpack_fail != 0 || data_frame.nonce != expected_nonce || real_bytesize > metadata.bytesize || real_bytesize > MAX_FIRMWARE_SIZE) {
+            abort();
+            return;
+        }
+
+        // Verify signature
+        uint8_t concat_data[50];
+        memcpy(concat_data, (uint8_t *) &data_frame.nonce, 2);
+        memcpy(2+concat_data, &data_frame.data, 48);
+        if (verify_signature(data_frame.signature, concat_data, 50) != 0) {
+            abort();
+            return;
+        }
+
+        uart_write(UART0, OK); // Acknowledge the frame.
+
+        // Save to intermediate buffer since it seems all right.
+        memcpy(&itm_data[itm_start_idx], &data_frame.data, 48 * sizeof(uint8_t)); // Copy the 48 firmware bytes
+        itm_start_idx += sizeof(data_frame.data); // Bump the itm buffer pointer
+
+        expected_nonce++;
+
+        // If is End frame, stop expecting dataframes.
+        if (data_frame.is_last_frame) break;
+    }
+
+    // Verification of payload
+    if (real_bytesize != metadata.bytesize || frames_received != metadata.num_packets) {
+        abort();
+        return;
+    }
+
+    // -------------------------------
+    // Beyond this point, saul goodman
+    // -------------------------------
 
     // Write new firmware size and version to Flash
     // Create 32 bit word for flash programming, version is at lower address, size is at higher address
     uint32_t metadata_to_write = ((metadata.bytesize & 0xFFFF) << 16) | (metadata.version & 0xFFFF);
-    program_flash((uint8_t *) METADATA_BASE, (uint8_t *)(&metadata), 4);
+    program_flash((uint8_t *) METADATA_BASE, (uint8_t *)(&metadata_to_write), 4);
 
-    uart_write(UART0, OK); // Acknowledge the metadata.
+    // Write message to Flash
+    program_flash(fw_release_message_address, (uint8_t *)(&release_message.terminated_message), 83);
 
-    /* Loop here until you can get all your characters and stuff */
-    uint32_t data_index = 0;
+    uint32_t itm_ptr = 0;
     uint32_t page_addr = FW_BASE;
+    while (itm_ptr < itm_start_idx) { // Ensure that the flash pointer doesn't exceed 
+        if (program_flash((uint8_t *) page_addr, &itm_data[itm_ptr], FLASH_PAGESIZE) != 0) {
+            abort();
+            return;
+        }
 
-    while (1) {
-        // Get two bytes for the length.
-        uart_receive = uart_read(UART0, BLOCKING, &read_success);
-        frame_length = (int)uart_receive << 8;
-        uart_receive = uart_read(UART0, BLOCKING, &read_success);
-        frame_length += (int)uart_receive;
+        itm_ptr += FLASH_PAGESIZE;
+        page_addr += FLASH_PAGESIZE; // Move to next page
+    }
 
-        // Get the number of bytes specified
-        for (int i = 0; i < frame_length; ++i) {
-            data[data_index] = uart_read(UART0, BLOCKING, &read_success);
-            data_index += 1;
-        } // for
-
-        // If we filed our page buffer, program it
-        if (data_index == FLASH_PAGESIZE || frame_length == 0) {
-            // Try to write flash and check for error
-            if (program_flash((uint8_t *) page_addr, data, data_index)) {
-                uart_write(UART0, ERROR); // Reject the firmware
-                SysCtlReset();            // Reset device
-                return;
-            }
-
-            // Update to next page
-            page_addr += FLASH_PAGESIZE;
-            data_index = 0;
-
-            // If at end of firmware, go to main
-            if (frame_length == 0) {
-                uart_write(UART0, OK);
-                break;
-            }
-        } // if
-
-        uart_write(UART0, OK); // Acknowledge the frame.
-    } // while(1)
+    uart_write(UART0, OK);
 }
 
 /*
@@ -317,6 +353,11 @@ void boot_firmware(void) {
           "BX R0\n\t");
 }
 
+void abort(void) {
+    uart_write(UART0, ERROR);
+    SysCtlReset();
+}
+
 void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
     for (uint8_t * cursor = start; cursor < (start + len); cursor += 1) {
         uint8_t data = *((uint8_t *)cursor);
@@ -340,6 +381,32 @@ void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
         uart_write_str(uart, byte_str);
         uart_write_str(uart, " ");
     }
+}
+
+// Verify signature using a given signature and verify by hashing the data.
+int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
+    Hmac hmac;
+    int hmac_res;
+
+    hmac_res = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
+    if (hmac_res != 0) return hmac_res;
+    hmac_res = wc_HmacSetKey(&hmac, WC_SHA256, HMAC_KEY, sizeof(HMAC_KEY));
+    if (hmac_res != 0) return hmac_res; 
+    hmac_res = wc_HmacUpdate(&hmac, data, data_len);
+    if (hmac_res != 0) return hmac_res; 
+
+    uint8_t hash[HMAC_SIG_LENGTH];
+    hmac_res = wc_HmacFinal(&hmac, &hash);
+    if (hmac_res != 0) return hmac_res; 
+
+    uint32_t good = 0;
+    for (int i = 0; i < HMAC_SIG_LENGTH; i++) {
+        good |= signature[i] ^ hash[i];
+    }
+    
+    if (good != 0) return INVALID_HASH_ERR;
+
+    return HMAC_SIG_LENGTH;
 }
 
 // jon take a look at this
@@ -380,18 +447,20 @@ int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data
     return 48; // Return the length of the output for SHA-384 HMAC
 }
 
+// Reads FRAME
 void read_frame(uint8_t* bytes) {
     int suck;
-    for (int i=0; i<FRAME_SIZE; i++) {
+    for (int i=0; i<ENCRYPTED_FRAME_SIZE; i++) {
         bytes[i] = uart_read(UART0, 1, suck);
     }
 }
 
 /*
- * Takes FRAME_SIZE bytes, and pointer to the corresponding struct to write to.
+ * Unpacking takes a buffer of FRAME_SIZE bytes, and pointer to the corresponding struct to populate.
  * Returns 0 on success
  */
 
+// Populate a BeginFrame
 int frame_unpack_begin(uint8_t* bytes, BeginFrame* frame) {
     if ((bytes[0] >> 6) != 0) return -1;
 
@@ -399,13 +468,14 @@ int frame_unpack_begin(uint8_t* bytes, BeginFrame* frame) {
     frame->num_packets = (bytes[3] << 8) | bytes[2];
     frame->bytesize = (bytes[5] << 8) | bytes[4];
     
-    for (int i=0; i<32; i++) {
+    for (int i=0; i<HMAC_SIG_LENGTH; i++) {
         frame->signature[i] = bytes[6+i];
     }
 
     return 0;
 }
 
+// Populate a MessageFrame
 int frame_unpack_message(uint8_t* bytes, MessageFrame* frame) {
     if ((bytes[0] >> 6) != 1) return -1;
 
@@ -413,14 +483,18 @@ int frame_unpack_message(uint8_t* bytes, MessageFrame* frame) {
         frame->terminated_message[i] = bytes[1+i];
     }
 
-    frame->terminated_message[82] = '\0';
+    frame->terminated_message[83] = '\0';
 
     return 0;
 }
 
+// Populate a DataFrame
 int frame_unpack_data(uint8_t* bytes, DataFrame* frame) {
+    uint8_t id = bytes[0] & 0b11000000;
     // Reject if first bit unset
     if (!(bytes[0] & 0b10000000)) return -1;
+
+    frame->is_last_frame = id == 0b11000000;
 
     frame->len = bytes[0] & 0b00111111;
     frame->nonce = (bytes[2] << 8) | bytes[1];

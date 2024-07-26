@@ -58,6 +58,17 @@ def make_bootloader():
     with open("secret_build_output.txt", "wb") as f:
         f.write(hmac_key + aes_key + iv + aad)
     
+    # Writing the keys and iv to header file
+    with open("inc/keys.h", "wb") as f:
+        to_write = f"""#ifndef SECRETS_H
+        #define SECRETS_H
+        const uint8_t HMAC_KEY[{len(hmac_key)}] = {arrayize(hmac_key)};
+        const uint8_t AES_KEY[{len(aes_key)}] = {arrayize(aes_key)};
+        const uint8_t INITIAL_IV[{len(iv)}] = {arrayize(iv)};
+        """
+        
+        f.write(to_write)
+    
     subprocess.call('make clean', shell=True)
     # Enables the iv and keys to be passed into the bootloader.c file
     status = subprocess.call(f'make HMAC={arrayize(hmac_key)} KEY={arrayize(aes_key)} INIT_IV={arrayize(iv)} AAD={arrayize(aad)}', shell=True)

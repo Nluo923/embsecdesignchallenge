@@ -125,7 +125,7 @@ SIG         :: 32 bytes       Signature of entire frame which will be used to en
 bits: ID(2)  LEN(6) :: 48
 ```
 
-Each DATA frame stores a nonce, and while Reading west would verify that the nonce is both sequentially valid such that if any char lies in some sentence, it would not be able to be duplicated or moved around. In this manner, the data is convicted to be authentic despite being signed per individual frame, and any offenders would be identified for the lifetime of the program and rejected at the end.
+Each DATA frame stores a nonce, which verifies its order and unique identity. The _ith_ frame has a nonce _i_.
 
 ---
 
@@ -162,3 +162,17 @@ This describes the firmware_protected.bin file produced by [fw_protect.py](tools
 - Firmware
 
 ```
+
+---
+
+# Signing
+
+Packets, if necessary, are signed with HMAC-SHA256, outputting a 32-byte signature.
+
+> **BEGIN FRAME**
+>
+> Input to HMAC is [version, num_packets, and bytesize] concatenated. 5 bytes
+
+> **DATA FRAME**
+>
+> Input to HMAC is [nonce, data] concatenated. 50 bytes
