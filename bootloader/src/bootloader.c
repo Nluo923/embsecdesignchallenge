@@ -429,9 +429,6 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
     hmac_res = wc_HmacFinal(&hmac, (uint8_t *) &hash);
     if (hmac_res != 0) return hmac_res; 
 
-    uart_write_hex_bytes(UART0, signature, HMAC_SIG_LENGTH);
-    uart_write_hex_bytes(UART0, hash, HMAC_SIG_LENGTH);
-
     uint8_t good = 0;
     for (int i = 0; i < HMAC_SIG_LENGTH; i++) {
         if (signature[i] != hash[i]) {

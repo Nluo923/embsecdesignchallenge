@@ -50,9 +50,6 @@ def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
     ser.write(begin)
     print("\tWrote BEGIN frame")
 
-    print(f"\tSent sig: {ser.read(32*3)}")
-    print(f"\tHash rcv: {ser.read(32*3)}")
-
     resp = ser.read(1)
     time.sleep(0.1)
 
@@ -102,21 +99,18 @@ def send_frame(ser: serial.Serial, frame: bytes, nonce: int, debug=False):
         print("Resp: {}".format(ord(resp)))
 
 def send_release_message(ser: serial.Serial, message: bytes, debug=False):
-    assert(message[-1] == b'\0')
-
-    id = 0b01
+    id = 0b01000000
 
     frame = bytearray(84)
-
+    frame[0] = id
     for i in range(1, min(len(message), 84)):
         frame[i] = message[i-1]
-    frame[-1] = b'\0'
+    frame[-1] = 0x00
     print(f"Message (len {len(message)}): {message}\n")
 
     ser.write(frame)
 
-    if debug:
-        print_hex(frame)
+    print_hex(frame)
 
     resp = ser.read(1)  # Wait for an OK from the bootloader
 
@@ -149,10 +143,10 @@ def update(ser: serial.Serial, infile, debug):
     send_metadata(ser, metadata, debug=debug)
 
     null_term = 4
-    while firmware_blob[null_term] != b"\0":
+    while firmware_blob[null_term] != 0: # couldn't tell you why this works despite writing being the opposite
         null_term += 1
 
-    print(f"Message: {firmware_blob[4:null_term+1]}")
+    print(f"Firmware Message: {firmware_blob[4:null_term+1]}")
 
     send_release_message(ser, firmware_blob[4:null_term+1]);
 
