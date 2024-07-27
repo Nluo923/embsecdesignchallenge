@@ -29,7 +29,7 @@ def make_bootloader():
     
     # Writing the keys and iv to secret_build_output
     with open("secret_build_output.txt", "wb") as f:
-        f.write(hmac_key + aes_key + iv )
+        f.write(hmac_key + b"\n" + aes_key + b"\n" + iv)
     
     # Writing the keys and iv to header file
     with open("inc/keys.h", "wb") as f:

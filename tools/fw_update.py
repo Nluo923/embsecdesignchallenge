@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 # Copyright 2024 The MITRE Corporation. ALL RIGHTS RESERVED
 # Approved for public release. Distribution unlimited 23-02181-25.
 
@@ -16,47 +14,55 @@ RESP_OK = b"\x00"
 FRAME_SIZE = 84
 DATA_SIZE = 48
 
-key = 'hmac'
+secrets = open("../bootloader/secret_build_output.txt", 'rb').read().splitlines()
+hmac_key = secrets[0]
 
-def send_metadata(ser: serial.Serial, metadata, debug=False):
+def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
+    print("BEGIN")
     assert(len(metadata) == 4)
 
     id = 0b00000000
 
     # this reads important metadata FROM THE PROTECTED FIRMWARE to be written on flash and recorded. IT IS NOT THE BINARY
-    version = u16(metadata[:2], endian='little')
+    version = u8(metadata[0:1], endian='little')
     bytesize = u16(metadata[2:], endian='little')
-    num_packets = len(range(0, len(bytesize), DATA_SIZE))
+    num_packets = len(range(0, bytesize, DATA_SIZE))
 
     print(f"Sending begin frame ({id})\n\tVersion: {version}\n\tFirmware Size: {bytesize} bytes\n")
 
-    begin = bytearray(84)
-
+    begin = b""
     # Populate with metadata
-    begin[0] = id # id
-    begin[1] = p8(version, endian='little') # version
-    begin[2:4] = p16(num_packets, endian='little') # num_packets
-    begin[4:6] = p16(bytesize, endian='little') # bytesize
+    begin += p8(id) # id
+    begin += p8(version) # version
+    begin += p16(num_packets, endian='little') # num_packets
+    begin += p16(bytesize, endian='little') # bytesize
 
     # sign using version + num_packets + bytesize
-    h = HMAC.new(key, digestmod=SHA256)
+    h = HMAC.new(hmac_key, digestmod=SHA256)
     h.update(begin[1:6])
-    print(f"Signed BEGIN with signature of size {h.digest_size}")
-    begin[6:38] = h.digest()
+    print(f"\tSigned BEGIN with signature of size {h.digest_size}\n\t{h.hexdigest()}")
+    begin += h.digest()
 
-    begin[38:] = b'\0' * (84-38)
+    begin += b'\0' * (84-38)
 
     # send the properly constructed BEGIN frame
+    assert(len(begin) == 84)
     ser.write(begin)
+    print("\tWrote BEGIN frame")
+
+    print(f"\tSent sig: {ser.read(32*3)}")
+    print(f"\tHash rcv: {ser.read(32*3)}")
 
     resp = ser.read(1)
     time.sleep(0.1)
 
     if resp != RESP_OK:
-        raise RuntimeError("ERROR: Bootloader responded with {}".format(repr(resp)))
+        raise RuntimeError("\tERROR: Bootloader responded with {}".format(repr(resp)))
+    else:
+        print(f"\tBEGIN OK")
 
 
-def send_frame(ser: serial.Serial, frame: bytearray, nonce: int, debug=False):
+def send_frame(ser: serial.Serial, frame: bytes, nonce: int, debug=False):
     id = len(frame)
 
     if len(frame) == FRAME_SIZE:
@@ -66,18 +72,20 @@ def send_frame(ser: serial.Serial, frame: bytearray, nonce: int, debug=False):
 
     nonce = p16(nonce, endian='little')
     
-    data_frame = bytearray(84)
-    data_frame[0] = id
-    data_frame[1 : 3] = nonce
-    data_frame[3 : 3 + len(frame)] = frame
+    data_frame = b''
+    data_frame += id
+    data_frame += nonce
+    data_frame += frame
+    data_frame.ljust(3 + DATA_SIZE, b'\0')
     data_frame[3 + DATA_SIZE] = b'\0'
 
     # sign with nonce + data, containing its padding too. i.e. fixed size inputs.
-    h = HMAC.new(key, digestmod=SHA256)
+    h = HMAC.new(hmac_key, digestmod=SHA256)
     h.update(data_frame[1 : 3 + DATA_SIZE])
     print(f"Signed BEGIN with signature of size {h.digest_size}")
-    data_frame[4 + len(frame) : ] = h.digest()
+    data_frame += h.digest()
 
+    assert(len(data_frame) == 84)
     ser.write(data_frame)
 
     if debug:
@@ -93,7 +101,7 @@ def send_frame(ser: serial.Serial, frame: bytearray, nonce: int, debug=False):
     if debug:
         print("Resp: {}".format(ord(resp)))
 
-def send_release_message(ser: serial.Serial, message: bytearray, debug=False):
+def send_release_message(ser: serial.Serial, message: bytes, debug=False):
     assert(message[-1] == b'\0')
 
     id = 0b01
@@ -124,8 +132,11 @@ def update(ser: serial.Serial, infile, debug):
     ser.write(b"U")
 
     print("Waiting for bootloader to enter update mode...")
-    if ser.read(1).decode() != "U":
-        return
+
+    inc = ser.read(1).decode()
+    while inc != "U":
+        print(f"\tGot a byte {inc}")
+        inc = ser.read(1).decode()
 
     print("Updating. Woohoo!!")
 
@@ -182,7 +193,7 @@ if __name__ == "__main__":
 
     if args.devname is not None:
         ser = serial.Serial(f"/dev/{args.devname}", 115200)
-        print("Loaded serial connection: {ser}")
+        print(f"Loaded serial connection: {ser.port}")
     else:
         ser = serial.Serial("/dev/ttyACM0", 115200)
 

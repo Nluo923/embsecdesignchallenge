@@ -51,7 +51,7 @@ uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 
-#define MAX_INTERMEDIATE_PAGES 12
+#define MAX_INTERMEDIATE_PAGES 4
 // Intermediate Firmware Buffer
 // These staging buffers store incoming firmware until fully verified and then flashed.
 uint8_t itm_data[FLASH_PAGESIZE * MAX_INTERMEDIATE_PAGES];
@@ -71,8 +71,32 @@ uint32_t random(uint8_t state) {
     return z ^ z >> 14;
 }
 
-// Signing
-#define INVALID_HASH_ERR -420
+// "Error codes"
+#define UNPACK_ERR -1
+#define WRONG_VERSION_ERR -2
+#define WRONG_BYTESIZE_ERR -3
+#define BAD_SIGNATURE_ERR -4
+#define TOO_MANY_FRAMES_ERR -5
+#define VERY_BAD_ERR -6
+#define INVALID_HASH_ERR -10
+#define BLINK_ON_CRASH 1
+
+void led_on(uint8_t red, uint8_t green, uint8_t blue) {
+    if (red) GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, GPIO_PIN_1);
+    if (green) GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_3, GPIO_PIN_3);
+    if (blue) GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_2, GPIO_PIN_2);
+}
+
+void led_off() {
+    GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3, 0x0);
+}
+
+void led_blink(uint8_t red, uint8_t green, uint8_t blue) {
+    led_on(red, green, blue);
+    SysCtlDelay(SysCtlClockGet() * 0.5);
+    led_off();
+    SysCtlDelay(SysCtlClockGet() * 0.5);
+}
 
 // Delay to allow time to connect GDB
 // green LED as visual indicator of when this function is running
@@ -109,7 +133,8 @@ void disable_debugging(void){
     HWREG(FLASH_FMC) = FLASH_FMC_WRKEY | FLASH_FMC_COMT;
 }
 
-void kill_bootloader(void) {
+void kill_bootloader(int8_t err) {
+    while (err++ && BLINK_ON_CRASH) led_blink(1, 1, 1);
     uart_write(UART0, ERROR);
     SysCtlReset();
 }
@@ -123,22 +148,23 @@ int main(void) {
     }
 
     //the GPIO pin for digital function.
-    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_3);
+    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3);
 
     // debug_delay_led();
 
     initialize_uarts(UART0);
-    disable_debugging();
+    // disable_debugging();
 
-    uart_write_str(UART0, "Welcome to the BWSI Vehicle Update Service!\n");
-    uart_write_str(UART0, "Send \"U\" to update, and \"B\" to run the firmware.\n");
+    // uart_write_str(UART0, "Welcome to the BWSI Vehicle Update Service!\n");
+    // uart_write_str(UART0, "Send \"U\" to update, and \"B\" to run the firmware.\n");
 
     int resp;
     while (1) {
         uint32_t instruction = uart_read(UART0, BLOCKING, &resp);
 
+        led_blink(0, 1, 0);
+
         if (instruction == UPDATE) {
-            uart_write_str(UART0, "U");
             load_firmware();
             uart_write_str(UART0, "Loaded new firmware.\n");
             nl(UART0);
@@ -155,16 +181,19 @@ int main(void) {
  * Load the firmware into flash.
  */
 void load_firmware(void) {
+    uart_write_str(UART0, "U");
+
     int unpack_fail = -1;
     uint8_t raw_frame[FRAME_SIZE];
     
     // Get metadata
     BeginFrame metadata;
+    led_on(0, 0, 1);
     read_frame(raw_frame);
     unpack_fail = frame_unpack_begin(raw_frame, &metadata);
 
     if (unpack_fail != 0) {
-        kill_bootloader();
+        kill_bootloader(UNPACK_ERR);
         return;
     }
 
@@ -175,11 +204,11 @@ void load_firmware(void) {
         old_version = 1;
     }
     if (metadata.version != 0 && metadata.version < old_version) {
-        kill_bootloader();
+        kill_bootloader(WRONG_VERSION_ERR);
         return;
     }
     if (metadata.bytesize > MAX_FIRMWARE_SIZE) {
-        kill_bootloader();
+        kill_bootloader(WRONG_BYTESIZE_ERR);
         return;
     }
     if (metadata.version == 0) {
@@ -193,9 +222,11 @@ void load_firmware(void) {
     memcpy(1 + concat_metadata, (uint8_t *) &metadata.num_packets, 2);
     memcpy(3 + concat_metadata, (uint8_t *) &metadata.bytesize, 2);
     if (verify_signature(metadata.signature, concat_metadata, 5) != 0) {
-        kill_bootloader();
+        kill_bootloader(BAD_SIGNATURE_ERR);
         return;
     }
+
+    led_off();
 
     uart_write(UART0, OK); // Acknowledge the metadata.
 
@@ -204,7 +235,7 @@ void load_firmware(void) {
     read_frame(raw_frame);
     unpack_fail = frame_unpack_message(raw_frame, &release_message);
     if (unpack_fail) {
-        kill_bootloader();
+        kill_bootloader(UNPACK_ERR);
         return;
     }
     uart_write(UART0, OK); // Do not ghost the sender.
@@ -216,7 +247,7 @@ void load_firmware(void) {
     while (1) {
         // If exceeds expected frames, kill_bootloader
         if (frames_received >= metadata.num_packets) {
-            kill_bootloader();
+            kill_bootloader(TOO_MANY_FRAMES_ERR);
             return;
         }
 
@@ -231,7 +262,7 @@ void load_firmware(void) {
 
         // Explode if bad, out of order/duped, or exceeds bytesize
         if (unpack_fail != 0 || data_frame.nonce != expected_nonce || real_bytesize > metadata.bytesize || real_bytesize > MAX_FIRMWARE_SIZE) {
-            kill_bootloader();
+            kill_bootloader(VERY_BAD_ERR);
             return;
         }
 
@@ -240,7 +271,7 @@ void load_firmware(void) {
         memcpy(concat_data, (uint8_t *) &data_frame.nonce, 2);
         memcpy(2+concat_data, &data_frame.data, 48);
         if (verify_signature(data_frame.signature, concat_data, 50) != 0) {
-            kill_bootloader();
+            kill_bootloader(BAD_SIGNATURE_ERR);
             return;
         }
 
@@ -258,7 +289,7 @@ void load_firmware(void) {
 
     // Verification of payload
     if (real_bytesize != metadata.bytesize || frames_received != metadata.num_packets) {
-        kill_bootloader();
+        kill_bootloader(TOO_MANY_FRAMES_ERR);
         return;
     }
 
@@ -278,7 +309,7 @@ void load_firmware(void) {
     uint32_t page_addr = FW_BASE;
     while (itm_ptr < itm_start_idx) { // Ensure that the flash pointer doesn't exceed 
         if (program_flash((uint8_t *) page_addr, &itm_data[itm_ptr], FLASH_PAGESIZE) != 0) {
-            kill_bootloader();
+            kill_bootloader(WRONG_BYTESIZE_ERR);
             return;
         }
 
@@ -398,14 +429,17 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
     hmac_res = wc_HmacFinal(&hmac, (uint8_t *) &hash);
     if (hmac_res != 0) return hmac_res; 
 
-    uint32_t good = 0;
-    for (int i = 0; i < HMAC_SIG_LENGTH; i++) {
-        good |= signature[i] ^ hash[i];
-    }
-    
-    if (good != 0) return INVALID_HASH_ERR;
+    uart_write_hex_bytes(UART0, signature, HMAC_SIG_LENGTH);
+    uart_write_hex_bytes(UART0, hash, HMAC_SIG_LENGTH);
 
-    return HMAC_SIG_LENGTH;
+    uint8_t good = 0;
+    for (int i = 0; i < HMAC_SIG_LENGTH; i++) {
+        if (signature[i] != hash[i]) {
+            return INVALID_HASH_ERR;
+        }
+    };
+
+    return 0;
 }
 
 // jon take a look at this

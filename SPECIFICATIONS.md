@@ -176,3 +176,20 @@ Packets, if necessary, are signed with HMAC-SHA256, outputting a 32-byte signatu
 > **DATA FRAME**
 >
 > Input to HMAC is [nonce, data] concatenated. 50 bytes
+
+---
+
+# Exchange
+
+The exchange goes as follows
+
+```
+Python                                Bootloader
+> U
+                                    U          <
+                                    Begin update
+> BEGIN FRAME
+                                    Verify
+                                    OK         <
+
+```
