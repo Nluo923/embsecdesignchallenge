@@ -62,7 +62,7 @@ def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
 def send_frame(ser: serial.Serial, frame: bytes, nonce: int, debug=False):
     id = len(frame)
 
-    if len(frame) == FRAME_SIZE:
+    if len(frame) == DATA_SIZE:
         id |= 0b10000000
     else:
         id |= 0b11000000
@@ -70,17 +70,16 @@ def send_frame(ser: serial.Serial, frame: bytes, nonce: int, debug=False):
     nonce = p16(nonce, endian='little')
     
     data_frame = b''
-    data_frame += id
+    data_frame += p8(id)
     data_frame += nonce
-    data_frame += frame
-    data_frame.ljust(3 + DATA_SIZE, b'\0')
-    data_frame[3 + DATA_SIZE] = b'\0'
+    data_frame += frame.ljust(DATA_SIZE, b'\0')
+    data_frame += b'\0' # padding
 
     # sign with nonce + data, containing its padding too. i.e. fixed size inputs.
     h = HMAC.new(hmac_key, digestmod=SHA256)
     h.update(data_frame[1 : 3 + DATA_SIZE])
-    print(f"Signed BEGIN with signature of size {h.digest_size}")
     data_frame += h.digest()
+    print(f"\tSigned frame {nonce} with signature of size {h.digest_size}\n\t{h.hexdigest()}")
 
     assert(len(data_frame) == 84)
     ser.write(data_frame)
@@ -109,8 +108,6 @@ def send_release_message(ser: serial.Serial, message: bytes, debug=False):
     print(f"Message (len {len(message)}): {message}\n")
 
     ser.write(frame)
-
-    print_hex(frame)
 
     resp = ser.read(1)  # Wait for an OK from the bootloader
 
@@ -154,9 +151,8 @@ def update(ser: serial.Serial, infile, debug):
     for idx, frame_start in enumerate(range(0, len(firmware), DATA_SIZE)):
         frame = firmware[frame_start : frame_start + DATA_SIZE]
 
+        print(f"Writing frame {idx} ({len(frame)} bytes)" + "[{:{}}]".format('▒'*int(idx), len(firmware) // DATA_SIZE))
         send_frame(ser, frame, idx, debug=debug)
-
-        print(f"Writing frame {idx} of ({len(frame)} bytes)" + "[{:{}}]\r".format('▒'*int(idx), len(firmware) // DATA_SIZE), end='')
 
     print("Done writing firmware.")
 

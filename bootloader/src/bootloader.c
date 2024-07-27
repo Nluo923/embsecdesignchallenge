@@ -93,9 +93,9 @@ void led_off() {
 
 void led_blink(uint8_t red, uint8_t green, uint8_t blue) {
     led_on(red, green, blue);
-    SysCtlDelay(SysCtlClockGet() * 0.5);
+    SysCtlDelay(SysCtlClockGet() * 0.2);
     led_off();
-    SysCtlDelay(SysCtlClockGet() * 0.5);
+    SysCtlDelay(SysCtlClockGet() * 0.2);
 }
 
 // Delay to allow time to connect GDB
@@ -240,13 +240,14 @@ void load_firmware(void) {
     }
     uart_write(UART0, OK); // Do not ghost the sender.
     
+    led_on(0, 0, 1);
     // Read dataframes and store in intermediate buffer
     int expected_nonce = 0;
     int frames_received = 0;
     int real_bytesize = 0;
     while (1) {
         // If exceeds expected frames, kill_bootloader
-        if (frames_received >= metadata.num_packets) {
+        if (frames_received >= metadata.num_packets) { // POOPOO
             kill_bootloader(TOO_MANY_FRAMES_ERR);
             return;
         }
@@ -270,8 +271,9 @@ void load_firmware(void) {
         uint8_t concat_data[50];
         memcpy(concat_data, (uint8_t *) &data_frame.nonce, 2);
         memcpy(2+concat_data, &data_frame.data, 48);
-        if (verify_signature(data_frame.signature, concat_data, 50) != 0) {
-            kill_bootloader(BAD_SIGNATURE_ERR);
+        int sig_res = verify_signature(data_frame.signature, concat_data, 50);
+        if (sig_res != 0) {
+            kill_bootloader(sig_res);
             return;
         }
 
@@ -292,6 +294,8 @@ void load_firmware(void) {
         kill_bootloader(TOO_MANY_FRAMES_ERR);
         return;
     }
+
+    led_off();
 
     // -------------------------------
     // Beyond this point, saul goodman
@@ -419,22 +423,22 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
     int hmac_res;
 
     hmac_res = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
-    if (hmac_res != 0) return hmac_res;
+    if (hmac_res != 0) return INVALID_HASH_ERR;
     hmac_res = wc_HmacSetKey(&hmac, WC_SHA256, HMAC_KEY, sizeof(HMAC_KEY));
-    if (hmac_res != 0) return hmac_res; 
+    if (hmac_res != 0) return INVALID_HASH_ERR; 
     hmac_res = wc_HmacUpdate(&hmac, data, data_len);
-    if (hmac_res != 0) return hmac_res; 
+    if (hmac_res != 0) return INVALID_HASH_ERR; 
 
     uint8_t hash[HMAC_SIG_LENGTH];
     hmac_res = wc_HmacFinal(&hmac, (uint8_t *) &hash);
-    if (hmac_res != 0) return hmac_res; 
+    if (hmac_res != 0) return INVALID_HASH_ERR; 
 
-    uint8_t good = 0;
+    int res = 0;
     for (int i = 0; i < HMAC_SIG_LENGTH; i++) {
-        if (signature[i] != hash[i]) {
-            return INVALID_HASH_ERR;
-        }
+        res |= hash[i] ^ signature[i];
     };
+
+    if (res != 0) return INVALID_HASH_ERR;
 
     return 0;
 }
