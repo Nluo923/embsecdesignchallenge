@@ -221,8 +221,9 @@ void load_firmware(void) {
     memcpy(concat_metadata, &metadata.version, 1);
     memcpy(1 + concat_metadata, (uint8_t *) &metadata.num_packets, 2);
     memcpy(3 + concat_metadata, (uint8_t *) &metadata.bytesize, 2);
-    if (verify_signature(metadata.signature, concat_metadata, 5) != 0) {
-        kill_bootloader(BAD_SIGNATURE_ERR);
+    int metadata_sign_res = verify_signature(metadata.signature, concat_metadata, sizeof(concat_metadata));
+    if (metadata_sign_res != 0) {
+        kill_bootloader(metadata_sign_res);
         return;
     }
 
@@ -322,6 +323,9 @@ void load_firmware(void) {
     }
 
     uart_write(UART0, OK);
+    led_blink(0, 1, 0);
+    led_blink(0, 1, 0);
+    led_blink(0, 1, 0);
 }
 
 /*
@@ -438,7 +442,7 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
         res |= hash[i] ^ signature[i];
     };
 
-    if (res != 0) return INVALID_HASH_ERR;
+    if (res != 0) return BAD_SIGNATURE_ERR;
 
     return 0;
 }

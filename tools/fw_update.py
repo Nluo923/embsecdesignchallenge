@@ -59,10 +59,10 @@ def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
         print(f"\tBEGIN OK")
 
 
-def send_frame(ser: serial.Serial, frame: bytes, nonce: int, debug=False):
-    id = len(frame)
+def send_frame(ser: serial.Serial, data: bytes, nonce: int, debug=False):
+    id = len(data)
 
-    if len(frame) == DATA_SIZE:
+    if len(data) == DATA_SIZE:
         id |= 0b10000000
     else:
         id |= 0b11000000
@@ -72,7 +72,7 @@ def send_frame(ser: serial.Serial, frame: bytes, nonce: int, debug=False):
     data_frame = b''
     data_frame += p8(id)
     data_frame += nonce
-    data_frame += frame.ljust(DATA_SIZE, b'\0')
+    data_frame += data.ljust(DATA_SIZE, b'\0')
     data_frame += b'\0' # padding
 
     # sign with nonce + data, containing its padding too. i.e. fixed size inputs.
@@ -188,5 +188,5 @@ if __name__ == "__main__":
         ser = serial.Serial("/dev/ttyACM0", 115200)
 
     update(ser=ser, infile=args.firmware, debug=args.debug)
-    our_beloved()
+    # our_beloved()
     ser.close()

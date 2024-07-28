@@ -191,5 +191,15 @@ Python                                Bootloader
 > BEGIN FRAME
                                     Verify
                                     OK         <
+> MESSAGE FRAME
+                                    Verify
+                                    OK         <
+> DATA FRAME
+                                    Verify
+                                    OK         <
+                                 if END    break
+                               Verify framecount
+                                    OK         <
+                           write to flash memory
 
 ```
