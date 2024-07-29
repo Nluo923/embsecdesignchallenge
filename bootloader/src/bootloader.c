@@ -457,14 +457,12 @@ int decrypt_aes_cbc(const byte* encrypted_input, word32 input_len,
     // Initialize AES for decryption
     ret = wc_AesSetKey(&aes, key, sizeof(AES_KEY), iv, AES_DECRYPTION);
     if (ret != 0) {
-        printf("Error setting AES key: %d\n", ret);
         return ret;
     }
 
     // Decrypt
     ret = wc_AesCbcDecrypt(&aes, decrypted_output, encrypted_input, input_len);
     if (ret != 0) {
-        printf("Error decrypting: %d\n", ret);
         return ret;
     }
 
@@ -522,7 +520,7 @@ void read_frame(uint8_t* bytes) {
     }
 
     //decrypt back into bytes
-    decrypt_aes_cbc(encrypted_frame, ENCRYPTED_FRAME_SIZE, AES_KEY, INITIAL_IV, bytes);    
+    int worked = decrypt_aes_cbc(encrypted_frame, ENCRYPTED_FRAME_SIZE, AES_KEY, INITIAL_IV, bytes);
 }
 
 /*
