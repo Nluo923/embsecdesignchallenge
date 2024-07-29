@@ -57,14 +57,6 @@ uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 uint8_t itm_data[FLASH_PAGESIZE * MAX_INTERMEDIATE_PAGES];
 int itm_start_idx = 0; // Frame index
 
-// mulberry32 - an actual high quality 32-bit generator
-uint32_t random(uint8_t state) {
-    uint32_t z = state + 0x6D2B79F5;
-    z = (z ^ z >> 15) * (1 | z);
-    z ^= z + (z ^ z >> 7) * (61 | z);
-    return z ^ z >> 14;
-}
-
 // "Error codes"
 #define UNPACK_ERR -1
 #define WRONG_VERSION_ERR -2
@@ -439,44 +431,6 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
     if (res != 0) return BAD_SIGNATURE_ERR;
 
     return 0;
-}
-
-// jon take a look at this
-int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data, int data_len, unsigned char* out) {
-    Hmac hmac;
-    int ret;
-
-    // Initialize HMAC context
-    ret = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
-    if (ret != 0) {
-        return ret; // Return error code if initialization fails
-    }
-
-    // Set HMAC key and hash type
-    ret = wc_HmacSetKey(&hmac, WC_SHA384, key, key_len);
-    if (ret != 0) {
-        wc_HmacFree(&hmac);
-        return ret; // Return error code if setting key fails
-    }
-
-    // Update HMAC with data
-    ret = wc_HmacUpdate(&hmac, data, data_len);
-    if (ret != 0) {
-        wc_HmacFree(&hmac);
-        return ret; // Return error code if update fails
-    }
-
-    // Finalize HMAC and retrieve output
-    ret = wc_HmacFinal(&hmac, out);
-    if (ret != 0) {
-        wc_HmacFree(&hmac);
-        return ret; // Return error code if finalization fails
-    }
-
-    // Free HMAC context
-    wc_HmacFree(&hmac);
-
-    return 48; // Return the length of the output for SHA-384 HMAC
 }
 
 // Reads FRAME
