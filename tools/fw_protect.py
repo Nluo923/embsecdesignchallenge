@@ -9,20 +9,21 @@ Firmware Bundle-and-Protect Tool
 """
 import argparse
 from pwn import *
-
+import sys
+import os.path
 
 def protect_firmware(infile, outfile, version, message):
     # Load firmware binary from infile
     with open(infile, "rb") as fp:
         firmware = fp.read()
 
-    # Append null-terminated message to end of firmware
-    firmware_and_message = firmware + message.encode() + b"\00"
+    # Append null-terminated message to start of firmware
+    firmware_and_message = message.encode() + b"\0" + firmware
 
     # Pack version and size into two little-endian shorts
     metadata = p16(version, endian='little') + p16(len(firmware), endian='little')  
 
-    # Append firmware and message to metadata
+    # Append message and firmware to metadata
     firmware_blob = metadata + firmware_and_message
 
     # Write firmware blob to outfile
@@ -34,8 +35,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Firmware Update Tool")
     parser.add_argument("--infile", help="Path to the firmware image to protect.", required=True)
     parser.add_argument("--outfile", help="Filename for the output firmware.", required=True)
-    parser.add_argument("--version", help="Version number of this firmware.", required=True)
-    parser.add_argument("--message", help="Release message for this firmware.", required=True)
+    parser.add_argument("--version", help="Version number of this firmware.", required=True, type=int)
+    parser.add_argument("--message", help="Release message for this firmware (Max 82 chars).", required=True)
     args = parser.parse_args()
+
+    if os.path.isfile(args.infile) is None:
+        print(f"{args.infile} doesn't exist")
+        sys.exit(-1)
+    
+    if os.path.isfile(args.outfile) is None:
+        print(f"{args.outfile} doesn't exist")
+        sys.exit(-1)
+
+    if args.version <= 0 or args.version > 255:
+        print(f"Invalid version")
+        sys.exit(-1)
+
+    if len(args.message) > 82:
+        print("The message, it's too long...", file=sys.stderr)
+        sys.exit(-1)
 
     protect_firmware(infile=args.infile, outfile=args.outfile, version=int(args.version), message=args.message)
