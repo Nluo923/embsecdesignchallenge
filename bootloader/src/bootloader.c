@@ -447,6 +447,31 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
     return 0;
 }
 
+
+int decrypt_aes_cbc(const byte* encrypted_input, word32 input_len, 
+                    const byte* key, const byte* iv, 
+                    byte* decrypted_output) {
+    Aes aes;
+    int ret;
+
+    // Initialize AES for decryption
+    ret = wc_AesSetKey(&aes, key, sizeof(AES_KEY), iv, AES_DECRYPTION);
+    if (ret != 0) {
+        printf("Error setting AES key: %d\n", ret);
+        return ret;
+    }
+
+    // Decrypt
+    ret = wc_AesCbcDecrypt(&aes, decrypted_output, encrypted_input, input_len);
+    if (ret != 0) {
+        printf("Error decrypting: %d\n", ret);
+        return ret;
+    }
+
+    return 0; // Success
+}
+
+
 // jon take a look at this
 int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data, int data_len, unsigned char* out) {
     Hmac hmac;
@@ -488,9 +513,16 @@ int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data
 // Reads FRAME
 void read_frame(uint8_t* bytes) {
     int suck;
-    for (int i=0; i<FRAME_SIZE; i++) {
-        bytes[i] = uart_read(UART0, 1, &suck);
+
+    uint8_t encrypted_frame[ENCRYPTED_FRAME_SIZE];
+
+    //read in byte by byte into buffer
+    for (int i=0; i<ENCRYPTED_FRAME_SIZE; i++) {
+        encrypted_frame[i] = uart_read(UART0, 1, &suck);
     }
+
+    //decrypt back into bytes
+    decrypt_aes_cbc(encrypted_frame, ENCRYPTED_FRAME_SIZE, AES_KEY, INITIAL_IV, bytes);    
 }
 
 /*
