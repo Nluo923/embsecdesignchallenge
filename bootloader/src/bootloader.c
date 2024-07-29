@@ -54,6 +54,8 @@ uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 #define MAX_INTERMEDIATE_PAGES 4
 // Intermediate Firmware Buffer
 // These staging buffers store incoming firmware until fully verified and then flashed.
+uint8_t raw_frame[FRAME_SIZE];
+uint8_t encrypted_frame[ENCRYPTED_FRAME_SIZE];
 uint8_t itm_data[FLASH_PAGESIZE * MAX_INTERMEDIATE_PAGES];
 int itm_start_idx = 0; // Frame index
 
@@ -76,8 +78,9 @@ uint32_t random(uint8_t state) {
 #define WRONG_VERSION_ERR -2
 #define WRONG_BYTESIZE_ERR -3
 #define BAD_SIGNATURE_ERR -4
-#define TOO_MANY_FRAMES_ERR -5
+#define WRONG_FRAMES_ERR -5
 #define VERY_BAD_ERR -6
+#define DECRYPTION_ERR -7
 #define INVALID_HASH_ERR -10
 #define BLINK_ON_CRASH 1
 
@@ -184,8 +187,7 @@ void load_firmware(void) {
     uart_write_str(UART0, "U");
 
     int unpack_fail = -1;
-    uint8_t raw_frame[FRAME_SIZE];
-    
+
     // Get metadata
     BeginFrame metadata;
     led_on(0, 0, 1);
@@ -249,7 +251,7 @@ void load_firmware(void) {
     while (1) {
         // If exceeds expected frames, kill_bootloader
         if (frames_received >= metadata.num_packets) { // POOPOO
-            kill_bootloader(TOO_MANY_FRAMES_ERR);
+            kill_bootloader(WRONG_FRAMES_ERR);
             return;
         }
 
@@ -292,7 +294,7 @@ void load_firmware(void) {
 
     // Verification of payload
     if (real_bytesize != metadata.bytesize || frames_received != metadata.num_packets) {
-        kill_bootloader(TOO_MANY_FRAMES_ERR);
+        kill_bootloader(WRONG_FRAMES_ERR);
         return;
     }
 
@@ -448,7 +450,7 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
 }
 
 
-int decrypt_aes_cbc(const byte* encrypted_input, word32 input_len, 
+void decrypt_aes_cbc(const byte* encrypted_input, word32 input_len, 
                     const byte* key, const byte* iv, 
                     byte* decrypted_output) {
     Aes aes;
@@ -457,13 +459,15 @@ int decrypt_aes_cbc(const byte* encrypted_input, word32 input_len,
     // Initialize AES for decryption
     ret = wc_AesSetKey(&aes, key, sizeof(AES_KEY), iv, AES_DECRYPTION);
     if (ret != 0) {
-        return ret;
+        kill_bootloader(DECRYPTION_ERR);
+        return;
     }
 
     // Decrypt
     ret = wc_AesCbcDecrypt(&aes, decrypted_output, encrypted_input, input_len);
     if (ret != 0) {
-        return ret;
+        kill_bootloader(DECRYPTION_ERR);
+        return;
     }
 
     return 0; // Success
@@ -512,15 +516,13 @@ int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data
 void read_frame(uint8_t* bytes) {
     int suck;
 
-    uint8_t encrypted_frame[ENCRYPTED_FRAME_SIZE];
-
     //read in byte by byte into buffer
     for (int i=0; i<ENCRYPTED_FRAME_SIZE; i++) {
         encrypted_frame[i] = uart_read(UART0, 1, &suck);
     }
 
     //decrypt back into bytes
-    int worked = decrypt_aes_cbc(encrypted_frame, ENCRYPTED_FRAME_SIZE, AES_KEY, INITIAL_IV, bytes);
+    decrypt_aes_cbc(encrypted_frame, ENCRYPTED_FRAME_SIZE, AES_KEY, INITIAL_IV, bytes);
 }
 
 /*
