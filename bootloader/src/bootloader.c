@@ -441,6 +441,44 @@ void read_frame(uint8_t* bytes) {
     }
 }
 
+int sha_hmac256(const unsigned char* key, int key_len, const unsigned char* data, int data_len, unsigned char* out) {
+    Hmac hmac;
+    int ret;
+    // Initialize HMAC context
+    ret = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
+    if (ret != 0) {
+        return ret; // Return error code if initialization fails
+    }
+    // Set HMAC key and hash type
+    ret = wc_HmacSetKey(&hmac, WC_SHA256, key, key_len);
+    if (ret != 0) {
+        wc_HmacFree(&hmac);
+        return ret; // Return error code if setting key fails
+    }
+    // Update HMAC with data
+    ret = wc_HmacUpdate(&hmac, data, data_len);
+    if (ret != 0) {
+        wc_HmacFree(&hmac);
+        return ret; // Return error code if update fails
+    }
+    // Finalize HMAC and retrieve output
+    ret = wc_HmacFinal(&hmac, out);
+    if (ret != 0) {
+        wc_HmacFree(&hmac);
+        return ret; // Return error code if finalization fails
+    }
+    // Free HMAC context
+    wc_HmacFree(&hmac);
+    return 32; // 32 bytes
+}
+// Reads FRAME
+void read_frame(uint8_t* bytes) {
+    int suck;
+    for (int i=0; i<FRAME_SIZE; i++) {
+        bytes[i] = uart_read(UART0, 1, &suck);
+    }
+}
+
 /*
  * Unpacking takes a buffer of FRAME_SIZE bytes, and pointer to the corresponding struct to populate.
  * Returns 0 on success
