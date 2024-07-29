@@ -70,8 +70,8 @@
 #define DATA_DELIM_SIZE 62
 
 #define FRAME_SIZE 84
-#define ENCRYPTED_FRAME_SIZE 192
-#define AES_BLOCK_SIZE 16
+#define PADDED_FRAME_SIZE 96
+#define ENCRYPTED_FRAME_SIZE 96
 
 typedef struct fw_meta_s {
     uint16_t    ver;                // Version of current fw being loaded

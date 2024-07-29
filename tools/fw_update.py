@@ -6,6 +6,8 @@ from pwn import *
 import time
 import serial
 from Crypto.Hash import HMAC, SHA256
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 from shutil import get_terminal_size
 
 from util import *
@@ -14,8 +16,10 @@ RESP_OK = b"\x00"
 FRAME_SIZE = 84
 DATA_SIZE = 48
 
-secrets = open("../bootloader/secret_build_output.txt", 'rb').read().splitlines()
-hmac_key = secrets[0]
+secrets = open("../bootloader/secret_build_output.txt", 'rb').read()
+hmac_key = secrets[0:48]
+aes_key = secrets[49:65]
+initial_iv = secrets[66:]
 
 def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
     print("BEGIN")
@@ -47,7 +51,9 @@ def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
 
     # send the properly constructed BEGIN frame
     assert(len(begin) == 84)
-    ser.write(begin)
+    enc = AES.new(aes_key, AES.MODE_CBC, iv=initial_iv)
+    encrypted_begin = enc.encrypt(pad(begin, AES.block_size)) # pad to 96 bytes
+    ser.write(encrypted_begin)
     print("\tWrote BEGIN frame")
 
     resp = ser.read(1)
@@ -82,7 +88,9 @@ def send_frame(ser: serial.Serial, data: bytes, nonce: int, debug=False):
     print(f"\tSigned frame {nonce} with signature of size {h.digest_size}\n\t{h.hexdigest()}")
 
     assert(len(data_frame) == 84)
-    ser.write(data_frame)
+    enc = AES.new(aes_key, AES.MODE_CBC, iv=initial_iv)
+    encrypted_data_frame = enc.encrypt(pad(data_frame, AES.block_size)) # pad to 96 bytes
+    ser.write(encrypted_data_frame)
 
     if debug:
         print_hex(data_frame)
