@@ -31,11 +31,9 @@
 #include "frame.h"
 
 // Forward Declarations
-void load_initial_firmware(void);
 void load_firmware(void);
 void boot_firmware(void);
 void uart_write_hex_bytes(uint8_t, uint8_t *, uint32_t);
-uint32_t random(uint8_t state);
 int verify_signature(uint8_t * signature, uint8_t * data, int data_len);
 void read_frame(uint8_t* bytes);
 void read_encrypted_frame(uint8_t* bytes);
@@ -62,20 +60,6 @@ uint8_t raw_frame[PADDED_FRAME_SIZE];
 uint8_t encrypted_frame[ENCRYPTED_FRAME_SIZE];
 uint8_t itm_data[FLASH_PAGESIZE * MAX_INTERMEDIATE_PAGES];
 int itm_start_idx = 0; // Frame index
-
-// Encryption
-// char HMAC_KEY[HMAC_KEY_LENGTH] = HMAC;
-// char AES_KEY [AES_KEY_LENGTH]  = KEY;
-// char IV      [AES_IV_LENGTH]   = INIT_IV;
-// char AES_AAD [AES_GCM_AAD_LENGTH] = AAD;
-
-// mulberry32 - an actual high quality 32-bit generator
-uint32_t random(uint8_t state) {
-    uint32_t z = state + 0x6D2B79F5;
-    z = (z ^ z >> 15) * (1 | z);
-    z ^= z + (z ^ z >> 7) * (61 | z);
-    return z ^ z >> 14;
-}
 
 // "Error codes"
 #define UNPACK_ERR -1
@@ -453,7 +437,6 @@ int verify_signature(uint8_t * signature, uint8_t * data, int data_len) {
     return 0;
 }
 
-
 void decrypt_aes_cbc(const byte* encrypted_input, word32 input_len, 
                     const byte* key, const byte* iv, 
                     byte* decrypted_output) {
@@ -486,45 +469,6 @@ void decrypt_aes_cbc(const byte* encrypted_input, word32 input_len,
     }
 
     wc_AesFree(&aes);
-}
-
-
-// jon take a look at this
-int sha_hmac384(const unsigned char* key, int key_len, const unsigned char* data, int data_len, unsigned char* out) {
-    Hmac hmac;
-    int ret;
-
-    // Initialize HMAC context
-    ret = wc_HmacInit(&hmac, NULL, INVALID_DEVID);
-    if (ret != 0) {
-        return ret; // Return error code if initialization fails
-    }
-
-    // Set HMAC key and hash type
-    ret = wc_HmacSetKey(&hmac, WC_SHA384, key, key_len);
-    if (ret != 0) {
-        wc_HmacFree(&hmac);
-        return ret; // Return error code if setting key fails
-    }
-
-    // Update HMAC with data
-    ret = wc_HmacUpdate(&hmac, data, data_len);
-    if (ret != 0) {
-        wc_HmacFree(&hmac);
-        return ret; // Return error code if update fails
-    }
-
-    // Finalize HMAC and retrieve output
-    ret = wc_HmacFinal(&hmac, out);
-    if (ret != 0) {
-        wc_HmacFree(&hmac);
-        return ret; // Return error code if finalization fails
-    }
-
-    // Free HMAC context
-    wc_HmacFree(&hmac);
-
-    return 48; // Return the length of the output for SHA-384 HMAC
 }
 
 // Reads FRAME
