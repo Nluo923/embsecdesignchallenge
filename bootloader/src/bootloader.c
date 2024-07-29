@@ -57,12 +57,6 @@ uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 uint8_t itm_data[FLASH_PAGESIZE * MAX_INTERMEDIATE_PAGES];
 int itm_start_idx = 0; // Frame index
 
-// Encryption
-// char HMAC_KEY[HMAC_KEY_LENGTH] = HMAC;
-// char AES_KEY [AES_KEY_LENGTH]  = KEY;
-// char IV      [AES_IV_LENGTH]   = INIT_IV;
-// char AES_AAD [AES_GCM_AAD_LENGTH] = AAD;
-
 // mulberry32 - an actual high quality 32-bit generator
 uint32_t random(uint8_t state) {
     uint32_t z = state + 0x6D2B79F5;
