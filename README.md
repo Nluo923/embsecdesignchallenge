@@ -1,50 +1,38 @@
-# Cryptographic Automotive Software Handler and Bootloader (CrASHBoot)
+# Joint Algorithm Yielding Data Encryption Network (JAYDEN)
 
-Installation and development guide for the most secure (TM) automotive bootloader on the planet! We guarentee that cars running our software will be unhackable (provided hacking is not attempted). Of all the automotive bootloaders, this is certainly one of them. Read on and tremble at our embedded security skillz.
+---
 
-### Internal Notes
+## Project Structure
 
 ```
-//TODO: Make the design secure
-//TODO: Hire interns
-//TODO: Delete TODOs before publishing
-```
-
-I find myself trapped in the labyrinthine depths of my company, shackled by an unending torrent of menial tasks. My desk has become my prison, my workload, my jailer. I am buried under a mountain of code, my skills squandered on trivialities while critical applications do not get the attention they deserve. In a desperate attempt to keep up with the workload, I've had to rapidly create a functional, yet insecure, product. It's a risky move, one that fills me with dread. I haven't had the time to implement the necessary security goals of confidentiality, integrity, and authentication. If you are reading this: I implore you, proceed with caution. **Do not release this software.** It is potentially riddled with vulnerabilities and exposed to the most basic types of attacks. 
-
-Please, send help. I need to escape this relentless cycle. I need a team of talented interns to tackle this challenge. Otherwise, I fear the worst.
-
-### External Notes
-
-Ship it!
-
-# Project Structure
-```
-├── bootloader *
-│   ├── bin
-│   │   ├── bootloader.bin
-│   ├── src
-│   │   ├── bootloader.c
-│   │   ├── startup_gcc.c
-│   ├── bootloader.ld
-│   ├── Makefile
+.
+├── bootloader
+│  ├── bin
+│  │  └── bootloader.bin
+│  ├── src
+│  │  ├── bootloader.c
+│  │  └── startup_gcc.c
+│  ├── Makefile
+│  ├── secret_build_output.txt
 ├── firmware
-│   ├── bin
-│   │   ├── firmware.bin
-│   ├── lib
-│   ├── src
+│  ├── bin
+│  │  └── firmware.bin
+│  ├── src
+│  │  └── firmware.c
+│  ├── lib
+│  └── Makefile
 ├── lib
-│   ├── driverlib
-│   ├── inc
-│   ├── uart
-├── tools *
-│   ├── bl_build.py
-│   ├── fw_protect.py
-│   ├── fw_update.py
-│   ├── util.py
-├── README.md
-
-Directories marked with * are part of the CrASHBoot system
+│  ├── driverlib
+│  ├── inc
+│  └── uart
+├── SPECIFICATIONS.md
+└── tools
+   ├── bl_build.py
+   ├── car-serial
+   ├── firmware_protected.bin
+   ├── fw_protect.py
+   ├── fw_update.py
+   └── util.py
 ```
 
 ## Bootloader
@@ -83,7 +71,7 @@ python bl_build.py
 ```
 
 2. Flash the bootloader using `lm4flash` tool
-   
+
 ```
 sudo lm4flash ../bootloader/bin/bootloader.bin
 ```
@@ -121,6 +109,7 @@ Additional firmwares can be updated by repeating steps 3 and 4, but only firmwar
 # Interacting with the Bootloader
 
 Using the custom `car-serial` script:
+
 ```
 car-serial
 ```
@@ -137,17 +126,21 @@ Exit miniterm: `Ctrl-]`
 Exit picocom: `Ctrl-A X`
 
 # Launching the Debugger
+
 Use OpenOCD with the configuration files for the board to get it into debug mode and open GDB server ports:
+
 ```bash
 openocd -f /usr/share/openocd/scripts/interface/ti-icdi.cfg -f /usr/share/openocd/scripts/board/ti_ek-tm4c123gxl.cfg
 ```
 
 Start GDB and connect to the main OpenOCD debug port:
+
 ```bash
 gdb-multiarch -ex "target extended-remote localhost:3333" bootloader/bin/bootloader.axf
 ```
 
 Go to `main` function and set a breakpoint
+
 ```
 layout src
 list main
