@@ -28,7 +28,7 @@ def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
     id = 0b00000000
 
     # this reads important metadata FROM THE PROTECTED FIRMWARE to be written on flash and recorded. IT IS NOT THE BINARY
-    version = u8(metadata[0:1], endian='little')
+    version = u16(metadata[0:2], endian='little')
     bytesize = u16(metadata[2:], endian='little')
     num_packets = len(range(0, bytesize, DATA_SIZE))
 
@@ -37,17 +37,17 @@ def send_metadata(ser: serial.Serial, metadata: bytes, debug=False):
     begin = b""
     # Populate with metadata
     begin += p8(id) # id
-    begin += p8(version) # version
+    begin += p16(version, endian='little') # version
     begin += p16(num_packets, endian='little') # num_packets
     begin += p16(bytesize, endian='little') # bytesize
 
     # sign using version + num_packets + bytesize
     h = HMAC.new(hmac_key, digestmod=SHA256)
-    h.update(begin[1:6])
+    h.update(begin[1:7])
     print(f"\tSigned BEGIN with signature of size {h.digest_size}\n\t{h.hexdigest()}")
     begin += h.digest()
 
-    begin += b'\0' * (84-38)
+    begin += b'\0' * (84-39)
 
     # send the properly constructed BEGIN frame
     assert(len(begin) == 84)
