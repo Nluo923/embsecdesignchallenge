@@ -47,7 +47,7 @@ if __name__ == "__main__":
         print(f"{args.outfile} doesn't exist")
         sys.exit(-1)
 
-    if args.version <= 0 or args.version > 2**16 - 1:
+    if args.version < 0 or args.version > 2**16 - 1:
         print(f"Invalid version")
         sys.exit(-1)
 

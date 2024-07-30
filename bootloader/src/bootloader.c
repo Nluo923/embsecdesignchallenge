@@ -157,7 +157,7 @@ int main(void) {
     while (1) {
         uint32_t instruction = uart_read(UART0, BLOCKING, &resp);
 
-        led_blink(0, 1, 0);
+        led_blink(1, 1, 0);
 
         if (instruction == UPDATE) {
             load_firmware();

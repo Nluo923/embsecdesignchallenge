@@ -44,6 +44,8 @@ const uint8_t INITIAL_IV[{len(iv)}] = {arrayize(iv)};
     
     subprocess.call('make clean', shell=True)
     status = subprocess.call('make')
+    os.chdir(os.path.join(BOOTLOADER_DIR, 'inc'))
+    os.remove('keys.h')
     
     return (status == 0)
 
