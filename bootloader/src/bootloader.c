@@ -53,6 +53,9 @@ uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 
+BeginFrame metadata;
+MessageFrame release_message;
+
 #define MAX_INTERMEDIATE_PAGES 4
 // Intermediate Firmware Buffer
 // These staging buffers store incoming firmware until fully verified and then flashed.
@@ -70,7 +73,7 @@ int itm_start_idx = 0; // Frame index
 #define VERY_BAD_ERR -6
 #define DECRYPTION_ERR -7
 #define INVALID_HASH_ERR -10
-#define BLINK_ON_CRASH 1
+#define BLINK_ON_CRASH 0
 
 void led_on(uint8_t red, uint8_t green, uint8_t blue) {
     if (red) GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, GPIO_PIN_1);
@@ -177,7 +180,6 @@ void load_firmware(void) {
     int unpack_fail = -1;
 
     // Get metadata
-    BeginFrame metadata;
     led_on(0, 0, 1);
     read_encrypted_frame(raw_frame);
     unpack_fail = frame_unpack_begin(raw_frame, &metadata);
@@ -207,10 +209,10 @@ void load_firmware(void) {
 
     // Signed by concat [version, num_packets, bytesize] in that order
     // Yeah i could read from a position in the struct but surely we have 6 bytes to spare
-    uint8_t concat_metadata[5];
-    memcpy(concat_metadata, &metadata.version, 1);
-    memcpy(1 + concat_metadata, (uint8_t *) &metadata.num_packets, 2);
-    memcpy(3 + concat_metadata, (uint8_t *) &metadata.bytesize, 2);
+    uint8_t concat_metadata[6];
+    memcpy(concat_metadata, &metadata.version, 2);
+    memcpy(2 + concat_metadata, (uint8_t *) &metadata.num_packets, 2);
+    memcpy(4 + concat_metadata, (uint8_t *) &metadata.bytesize, 2);
     int metadata_sign_res = verify_signature(metadata.signature, concat_metadata, sizeof(concat_metadata));
     if (metadata_sign_res != 0) {
         kill_bootloader(metadata_sign_res);
@@ -222,7 +224,6 @@ void load_firmware(void) {
     uart_write(UART0, OK); // Acknowledge the metadata.
 
     // Release Message
-    MessageFrame release_message;
     read_frame(raw_frame);
     unpack_fail = frame_unpack_message(raw_frame, &release_message);
     if (unpack_fail) {
@@ -379,6 +380,15 @@ void boot_firmware(void) {
         return;
     }
 
+    uart_write_str(UART0, "Version: ");
+    uint16_t ver_num = metadata.version;
+    char ver[7] = "     \n";
+    for (int i=4; i>=0 && ver_num > 0; i--) {
+        ver[i] = (ver_num % 10) + '0';
+        ver_num /= 10;
+    }
+    
+    uart_write_str(UART0, (char *)ver);
     uart_write_str(UART0, (char *)fw_release_message_address);
 
     // Boot the firmware
@@ -497,12 +507,12 @@ void read_encrypted_frame(uint8_t* bytes) {
 int frame_unpack_begin(uint8_t* bytes, BeginFrame* frame) {
     if ((bytes[0] >> 6) != 0) return -1;
 
-    frame->version = bytes[1];
-    frame->num_packets = (bytes[3] << 8) | bytes[2];
-    frame->bytesize = (bytes[5] << 8) | bytes[4];
+    frame->version = (bytes[2] << 8) | bytes[1];
+    frame->num_packets = (bytes[4] << 8) | bytes[3];
+    frame->bytesize = (bytes[6] << 8) | bytes[5];
     
     for (int i=0; i<HMAC_SIG_LENGTH; i++) {
-        frame->signature[i] = bytes[6+i];
+        frame->signature[i] = bytes[7+i];
     }
 
     return 0;

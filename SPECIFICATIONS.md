@@ -50,13 +50,13 @@ The BEGIN frame stores metadata used to verify all of the incoming data frames.
 <84 bytes>
 
 ID,UNK      :: 1 byte         Composed of first 2 bits ID, other 6 bits useless
-VER         :: 1 bytes        Version which shall be used to preserve its invariance
+VER         :: 2 bytes        Version which shall be used to preserve its invariance
 NUM_PACKETS :: 2 bytes        Number of incoming data packets, this includes the ending frame.
 BYTESIZE    :: 2 bytes        Bytesize of firmware.
 SIG         :: 32 bytes       Sign the metadata, because we are cool like that.
-PAD         :: 46 bytes       For comfort
+PAD         :: 45 bytes       For comfort
 
-  0x00      0x01      0x02              0x04      0x06   0x26      0x54
+  0x00      0x01      0x03              0x05      0x07   0x27      0x54
    ^         ^         ^                 ^         ^      ^         ^
    | ID      | VER     | NUM_PACKETS     |BYTESIZE | SIG  |  PAD    |
    [--------][--------][----------------][--------][~~~~~][========]|
@@ -171,7 +171,7 @@ Packets, if necessary, are signed with HMAC-SHA256, outputting a 32-byte signatu
 
 > **BEGIN FRAME**
 >
-> Input to HMAC is [version, num_packets, and bytesize] concatenated. 5 bytes
+> Input to HMAC is [version, num_packets, and bytesize] concatenated. 6 bytes
 
 > **DATA FRAME**
 >
