@@ -128,6 +128,7 @@ void disable_debugging(void){
 }
 
 void kill_bootloader(int8_t err) {
+    led_off();
     while (err++ && BLINK_ON_CRASH) led_blink(1, 1, 1);
     uart_write(UART0, ERROR);
     SysCtlReset();
@@ -232,7 +233,7 @@ void load_firmware(void) {
     }
     uart_write(UART0, OK); // Do not ghost the sender.
     
-    led_on(0, 0, 1);
+    led_on(1, 0, 1);
     // Read dataframes and store in intermediate buffer
     int expected_nonce = 0;
     int frames_received = 0;
