@@ -11,11 +11,15 @@ import argparse
 from pwn import *
 import sys
 import os.path
+import pathlib
 from Crypto.Hash import HMAC, SHA256
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 
-secrets = open("../bootloader/secret_build_output.txt", 'rb').read()
+REPO_ROOT = pathlib.Path(__file__).parent.parent.absolute()
+BOOTLOADER_PATH = os.path.join(REPO_ROOT, "bootloader")
+os.chdir(BOOTLOADER_PATH)
+secrets = open(os.path.join(BOOTLOADER_PATH, "secret_build_output.txt"), 'rb').read()
 hmac_key = secrets[0:48]
 aes_key = secrets[49:65]
 initial_iv = secrets[66:]
