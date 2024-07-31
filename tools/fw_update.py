@@ -88,10 +88,8 @@ def update(ser: serial.Serial, infile, debug):
     resp = ser.read(1)  # Wait for an OK from the bootloader
     time.sleep(0.1)
 
-    print(resp + ser.read_all())
-
-    # if resp != RESP_OK:
-        # raise RuntimeError("\tERROR: Bootloader responded with {}".format(repr(resp)))
+    if resp != RESP_OK:
+        raise RuntimeError("\tERROR: Bootloader responded with {}".format(repr(resp)))
     return ser
 
 def our_beloved():
