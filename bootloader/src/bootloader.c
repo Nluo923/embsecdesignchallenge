@@ -18,6 +18,7 @@
 
 // Application Imports
 #include "driverlib/gpio.h"
+#include "driverlib/uart.h"
 #include "uart/uart.h"
 
 // Cryptography Imports
@@ -34,6 +35,7 @@
 void load_firmware(void);
 void boot_firmware(void);
 void uart_write_hex_bytes(uint8_t, uint8_t *, uint32_t);
+void uart_write_short(u_int16_t n);
 int verify_signature(uint8_t * signature, uint8_t * data, int data_len);
 void read_frame(uint8_t* bytes);
 void read_encrypted_frame(uint8_t* bytes);
@@ -53,10 +55,7 @@ uint16_t * fw_version_address = (uint16_t *) (METADATA_BASE);
 uint16_t * fw_size_address = (uint16_t *)(METADATA_BASE + 2);
 uint8_t * fw_release_message_address = (uint8_t *)(METADATA_BASE + 4);
 
-BeginFrame metadata;
-MessageFrame release_message;
-
-#define MAX_INTERMEDIATE_PAGES 4
+#define MAX_INTERMEDIATE_PAGES 6
 // Intermediate Firmware Buffer
 // These staging buffers store incoming firmware until fully verified and then flashed.
 uint8_t raw_frame[PADDED_FRAME_SIZE];
@@ -128,9 +127,9 @@ void disable_debugging(void){
 }
 
 void kill_bootloader(int8_t err) {
-    led_off();
     while (err++ && BLINK_ON_CRASH) led_blink(1, 1, 1);
     uart_write(UART0, ERROR);
+    while(UARTBusy(UART0_BASE)){}
     SysCtlReset();
 }
 
@@ -161,7 +160,7 @@ int main(void) {
 
         if (instruction == UPDATE) {
             load_firmware();
-            uart_write_str(UART0, "Loaded new firmware.\n");
+            // uart_write_str(UART0, "Loaded new firmware.\n");
             nl(UART0);
         } else if (instruction == BOOT) {
             uart_write_str(UART0, "B");
@@ -181,7 +180,7 @@ void load_firmware(void) {
     int unpack_fail = -1;
 
     // Get metadata
-    led_on(0, 0, 1);
+    BeginFrame metadata;
     read_encrypted_frame(raw_frame);
     unpack_fail = frame_unpack_begin(raw_frame, &metadata);
 
@@ -193,6 +192,7 @@ void load_firmware(void) {
     // Compare to old version and kill_bootloader if older (note special case for version 0).
     // If no metadata available (0xFFFF), set as version 1
     uint16_t old_version = *fw_version_address;
+    uint16_t old_bytesize = *fw_size_address;
     if (old_version == 0xFFFF) {
         old_version = 1;
     }
@@ -200,7 +200,7 @@ void load_firmware(void) {
         kill_bootloader(WRONG_VERSION_ERR);
         return;
     }
-    if (metadata.bytesize > MAX_FIRMWARE_SIZE) {
+    if ((metadata.version == old_version && metadata.bytesize != old_bytesize) || metadata.bytesize > MAX_FIRMWARE_SIZE) {
         kill_bootloader(WRONG_BYTESIZE_ERR);
         return;
     }
@@ -220,11 +220,10 @@ void load_firmware(void) {
         return;
     }
 
-    led_off();
-
     uart_write(UART0, OK); // Acknowledge the metadata.
 
     // Release Message
+    MessageFrame release_message;
     read_frame(raw_frame);
     unpack_fail = frame_unpack_message(raw_frame, &release_message);
     if (unpack_fail) {
@@ -233,21 +232,20 @@ void load_firmware(void) {
     }
     uart_write(UART0, OK); // Do not ghost the sender.
     
-    led_on(1, 0, 1);
     // Read dataframes and store in intermediate buffer
     int expected_nonce = 0;
     int frames_received = 0;
-    int real_bytesize = 0;
+    uint16_t real_bytesize = 0;
     while (1) {
-        // If exceeds expected frames, kill_bootloader
-        if (frames_received >= metadata.num_packets) { // POOPOO
-            kill_bootloader(WRONG_FRAMES_ERR);
-            return;
-        }
-
         // Read in a frame
         read_encrypted_frame(raw_frame);
         frames_received++;
+
+        // If exceeds expected frames, kill_bootloader
+        if (frames_received > metadata.num_packets) { // POOPOO
+            kill_bootloader(WRONG_FRAMES_ERR);
+            return;
+        }
 
         // Unpack as DataFrame
         DataFrame data_frame;
@@ -271,24 +269,34 @@ void load_firmware(void) {
         }
 
         uart_write(UART0, OK); // Acknowledge the frame.
+        // uart_write_short(data_frame.len); uart_write(UART0, ':');
+        // uart_write_short(real_bytesize); uart_write(UART0, ':');
+        // uart_write_short(metadata.bytesize);
 
         // Save to intermediate buffer since it seems all right.
-        memcpy(&itm_data[itm_start_idx], &data_frame.data, 48 * sizeof(uint8_t)); // Copy the 48 firmware bytes
+        memcpy(&itm_data[itm_start_idx], &data_frame.data, data_frame.len); // Copy the firmware bytes
         itm_start_idx += sizeof(data_frame.data); // Bump the itm buffer pointer
 
         expected_nonce++;
 
         // If is End frame, stop expecting dataframes.
-        if (data_frame.is_last_frame) break;
+        if (data_frame.is_last_frame) {
+            break;
+        }
     }
 
     // Verification of payload
-    if (real_bytesize != metadata.bytesize || frames_received != metadata.num_packets) {
+    if (real_bytesize != metadata.bytesize) {
+        kill_bootloader(WRONG_BYTESIZE_ERR);
+        return;
+    }
+
+    if (frames_received != metadata.num_packets) {
         kill_bootloader(WRONG_FRAMES_ERR);
         return;
     }
 
-    led_off();
+    uart_write(UART0, OK);
 
     // -------------------------------
     // Beyond this point, saul goodman
@@ -296,11 +304,13 @@ void load_firmware(void) {
 
     // Write new firmware size and version to Flash
     // Create 32 bit word for flash programming, version is at lower address, size is at higher address
+    uint8_t buffa[87]; 
     uint32_t metadata_to_write = ((metadata.bytesize & 0xFFFF) << 16) | (metadata.version & 0xFFFF);
-    program_flash((uint8_t *) METADATA_BASE, (uint8_t *)(&metadata_to_write), 4);
+    memcpy(buffa, (uint8_t *)(&metadata_to_write), 4);
+    memcpy(4+buffa, (uint8_t *)(&release_message.terminated_message), 83);
 
     // Write message to Flash
-    program_flash(fw_release_message_address, (uint8_t *)(&release_message.terminated_message), 83);
+    program_flash(METADATA_BASE, (uint8_t *)(&buffa), 87);
 
     uint32_t itm_ptr = 0;
     uint32_t page_addr = FW_BASE;
@@ -313,11 +323,6 @@ void load_firmware(void) {
         itm_ptr += FLASH_PAGESIZE;
         page_addr += FLASH_PAGESIZE; // Move to next page
     }
-
-    uart_write(UART0, OK);
-    led_blink(0, 1, 0);
-    led_blink(0, 1, 0);
-    led_blink(0, 1, 0);
 }
 
 /*
@@ -377,48 +382,46 @@ void boot_firmware(void) {
 
     if (!fw_present) {
         uart_write_str(UART0, "No firmware loaded.\n");
+        while(UARTBusy(UART0_BASE)){}
         SysCtlReset();            // Reset device
         return;
     }
 
     uart_write_str(UART0, "Version: ");
-    uint16_t ver_num = metadata.version;
-    char ver[7] = "     \n";
-    for (int i=4; i>=0 && ver_num > 0; i--) {
-        ver[i] = (ver_num % 10) + '0';
-        ver_num /= 10;
-    }
+    uint16_t ver_num = *fw_version_address;
+    uart_write_short(ver_num);
+    uart_write_str(UART0, "Size:    ");
+    uint16_t bytesize_num = *fw_size_address;
+    uart_write_short(bytesize_num);
     
-    uart_write_str(UART0, (char *)ver);
-    uart_write_str(UART0, (char *)fw_release_message_address);
+    uart_write_str_lim(UART0, (char *)fw_release_message_address, 83);
 
     // Boot the firmware
     __asm("LDR R0,=0x10001\n\t"
           "BX R0\n\t");
 }
 
-void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
-    for (uint8_t * cursor = start; cursor < (start + len); cursor += 1) {
-        uint8_t data = *((uint8_t *)cursor);
-        uint8_t right_nibble = data & 0xF;
-        uint8_t left_nibble = (data >> 4) & 0xF;
-        char byte_str[3];
-        if (right_nibble > 9) {
-            right_nibble += 0x37;
-        } else {
-            right_nibble += 0x30;
-        }
-        byte_str[1] = right_nibble;
-        if (left_nibble > 9) {
-            left_nibble += 0x37;
-        } else {
-            left_nibble += 0x30;
-        }
-        byte_str[0] = left_nibble;
-        byte_str[2] = '\0';
+void uart_write_str_lim(uint8_t uart, char *str, uint16_t lim) {
+  while (*str && lim--) { // Loop until null terminator
+    uart_write(uart, (uint32_t)*str++);
+  }
+}
 
-        uart_write_str(uart, byte_str);
-        uart_write_str(uart, " ");
+void uart_write_short(u_int16_t n) {
+    char str[7] = "     \n";
+    for (int i=4; i>=0 && n > 0; i--) {
+        str[i] = (n % 10) + '0';
+        n /= 10;
+    }
+    uart_write_str_lim(UART0, (char *)str, sizeof(str));
+}
+
+void uart_write_hex_bytes(uint8_t uart, uint8_t * start, uint32_t len) {
+    const char * hex = "0123456789ABCDEF";
+    for(uint8_t * pin = start; pin < start+len; pin++) {
+        uart_write(UART0, hex[(*pin>>4) & 0xF]);
+        uart_write(UART0, hex[ *pin     & 0xF]);
+        uart_write(UART0, ':');
     }
 }
 
