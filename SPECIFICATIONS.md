@@ -150,21 +150,6 @@ This is essentially another dataframe with the leftover data. It will be interpr
 
 ---
 
-# Binary Format
-
-This describes the firmware_protected.bin file produced by [fw_protect.py](tools/fw_protect.py) and interpreted by [fw_update.py](tools/fw_update.py) to be sent as packets.
-
-```
-
-- 2 byte LE                              version
-- 2 byte LE                              firmware bytesize
-- Variable length, null-terminated       message
-- Firmware
-
-```
-
----
-
 # Signing
 
 Packets, if necessary, are signed with HMAC-SHA256, outputting a 32-byte signature.

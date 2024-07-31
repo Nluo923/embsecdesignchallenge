@@ -73,7 +73,7 @@ int itm_start_idx = 0; // Frame index
 #define VERY_BAD_ERR -6
 #define DECRYPTION_ERR -7
 #define INVALID_HASH_ERR -10
-#define BLINK_ON_CRASH 0
+#define BLINK_ON_CRASH 1
 
 void led_on(uint8_t red, uint8_t green, uint8_t blue) {
     if (red) GPIOPinWrite(GPIO_PORTF_BASE, GPIO_PIN_1, GPIO_PIN_1);
@@ -131,6 +131,7 @@ void kill_bootloader(int8_t err) {
     led_off();
     while (err++ && BLINK_ON_CRASH) led_blink(1, 1, 1);
     uart_write(UART0, ERROR);
+    while(UARTBusy(UART0_BASE)){}
     SysCtlReset();
 }
 
@@ -161,7 +162,7 @@ int main(void) {
 
         if (instruction == UPDATE) {
             load_firmware();
-            uart_write_str(UART0, "Loaded new firmware.\n");
+            // uart_write_str(UART0, "Loaded new firmware.\n");
             nl(UART0);
         } else if (instruction == BOOT) {
             uart_write_str(UART0, "B");
@@ -193,6 +194,7 @@ void load_firmware(void) {
     // Compare to old version and kill_bootloader if older (note special case for version 0).
     // If no metadata available (0xFFFF), set as version 1
     uint16_t old_version = *fw_version_address;
+    uint16_t old_bytesize = *fw_size_address;
     if (old_version == 0xFFFF) {
         old_version = 1;
     }
@@ -200,7 +202,7 @@ void load_firmware(void) {
         kill_bootloader(WRONG_VERSION_ERR);
         return;
     }
-    if (metadata.bytesize > MAX_FIRMWARE_SIZE) {
+    if ((metadata.version == old_version && metadata.bytesize != old_bytesize) || metadata.bytesize > MAX_FIRMWARE_SIZE) {
         kill_bootloader(WRONG_BYTESIZE_ERR);
         return;
     }
@@ -237,17 +239,17 @@ void load_firmware(void) {
     // Read dataframes and store in intermediate buffer
     int expected_nonce = 0;
     int frames_received = 0;
-    int real_bytesize = 0;
+    uint16_t real_bytesize = 0;
     while (1) {
-        // If exceeds expected frames, kill_bootloader
-        if (frames_received >= metadata.num_packets) { // POOPOO
-            kill_bootloader(WRONG_FRAMES_ERR);
-            return;
-        }
-
         // Read in a frame
         read_encrypted_frame(raw_frame);
         frames_received++;
+
+        // If exceeds expected frames, kill_bootloader
+        if (frames_received > metadata.num_packets) { // POOPOO
+            kill_bootloader(WRONG_FRAMES_ERR);
+            return;
+        }
 
         // Unpack as DataFrame
         DataFrame data_frame;
@@ -279,16 +281,29 @@ void load_firmware(void) {
         expected_nonce++;
 
         // If is End frame, stop expecting dataframes.
-        if (data_frame.is_last_frame) break;
+        if (data_frame.is_last_frame) {
+            uart_write_hex_bytes(UART0, (uint8_t*) real_bytesize, 2);
+            uart_write_hex_bytes(UART0, (uint8_t*) metadata.bytesize, 2);
+            break;
+        }
     }
 
+    led_off();
+
     // Verification of payload
-    if (real_bytesize != metadata.bytesize || frames_received != metadata.num_packets) {
+    if (real_bytesize != metadata.bytesize) {
+        uart_write_hex_bytes(UART0, (uint8_t*) real_bytesize, 2);
+        uart_write_hex_bytes(UART0, (uint8_t*) metadata.bytesize, 2);
+        kill_bootloader(WRONG_BYTESIZE_ERR);
+        return;
+    }
+
+    if (frames_received != metadata.num_packets) {
         kill_bootloader(WRONG_FRAMES_ERR);
         return;
     }
 
-    led_off();
+    uart_write(UART0, OK);
 
     // -------------------------------
     // Beyond this point, saul goodman
@@ -314,7 +329,6 @@ void load_firmware(void) {
         page_addr += FLASH_PAGESIZE; // Move to next page
     }
 
-    uart_write(UART0, OK);
     led_blink(0, 1, 0);
     led_blink(0, 1, 0);
     led_blink(0, 1, 0);
@@ -377,6 +391,7 @@ void boot_firmware(void) {
 
     if (!fw_present) {
         uart_write_str(UART0, "No firmware loaded.\n");
+        while(UARTBusy(UART0_BASE)){}
         SysCtlReset();            // Reset device
         return;
     }
