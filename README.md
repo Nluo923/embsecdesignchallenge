@@ -52,5 +52,5 @@ python3 fw_update.py --firmware ./firmware_protected.bin
 python3 fw_update.py --firmware ./firmware_protected.bin --devname <device name without /dev/>
 
 # access firmware
-picocom -b 115200
+picocom -b 115200 /dev/ttyACM0
 ```
